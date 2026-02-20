@@ -39,6 +39,7 @@ function populateModelDropdown(models) {
             caret.className = "caret";
             dropdown.appendChild(caret);
             selectedModel = model.id;
+            savePreference("selectedModel", model.id);
         });
 
         menu.appendChild(item);
@@ -344,5 +345,81 @@ function setLoadingState(isLoading) {
 
     if (aspectRatioDropdown) {
         aspectRatioDropdown.parentElement.classList.toggle("disabled", isLoading);
+    }
+}
+
+/**
+ * Programmatically sets the resolution dropdown value
+ * @param {string} resolution - Resolution value (1K, 2K, 4K)
+ */
+function setResolution(resolution) {
+    var dropdown = document.getElementById("resolution-dropdown");
+    if (!dropdown) return;
+    dropdown.textContent = "";
+    dropdown.textContent = resolution + " ";
+    var caret = document.createElement("span");
+    caret.className = "caret";
+    dropdown.appendChild(caret);
+}
+
+/**
+ * Programmatically sets the aspect ratio dropdown value
+ * @param {string} aspectRatio - Aspect ratio value (1:1, 16:9, 3:2, 21:9)
+ */
+function setAspectRatio(aspectRatio) {
+    var dropdown = document.getElementById("aspect-ratio-dropdown");
+    if (!dropdown) return;
+    dropdown.textContent = "";
+    dropdown.textContent = aspectRatio + " ";
+    var caret = document.createElement("span");
+    caret.className = "caret";
+    dropdown.appendChild(caret);
+}
+
+/**
+ * Programmatically selects a model by ID from the dropdown
+ * @param {string} modelId - Model ID to select
+ * @param {Array<Object>} models - Available models
+ * @returns {boolean} true if model found and selected
+ */
+function selectModelById(modelId, models) {
+    var dropdown = document.getElementById("model-dropdown");
+    var menu = document.getElementById("model-menu");
+    if (!dropdown || !menu) return false;
+
+    var foundModel = models.find(function(model) {
+        return model.id === modelId;
+    });
+
+    if (!foundModel) return false;
+
+    dropdown.textContent = "";
+    dropdown.textContent = foundModel.name + " ";
+    var caret = document.createElement("span");
+    caret.className = "caret";
+    dropdown.appendChild(caret);
+    selectedModel = modelId;
+    return true;
+}
+
+/**
+ * Displays a warning message in the conversation area
+ * @param {string} message - Warning message to display
+ */
+function displayWarning(message) {
+    var warningDisplay = document.getElementById("warning-display");
+    if (!warningDisplay) return;
+
+    warningDisplay.style.display = "block";
+    warningDisplay.className = "alert alert-warning mb-3";
+    warningDisplay.textContent = message;
+
+    var conversationArea = document.getElementById("conversation-area");
+    if (conversationArea) {
+        if (conversationArea.children.length > 0) {
+            conversationArea.insertBefore(warningDisplay, conversationArea.firstChild);
+        } else {
+            conversationArea.appendChild(warningDisplay);
+        }
     }
 }

@@ -13,7 +13,7 @@ var isGenerating = false;
  */
 function init() {
     setupEventListeners();
-    initializeDropdowns();
+    loadPreferencesAndInitialize();
 }
 
 function setupEventListeners() {
@@ -66,10 +66,12 @@ function setupDropdownEventListeners() {
             e.preventDefault();
             var dropdown = document.getElementById("resolution-dropdown");
             if (dropdown) {
+                dropdown.textContent = "";
                 dropdown.textContent = this.textContent + " ";
                 var caret = document.createElement("span");
                 caret.className = "caret";
                 dropdown.appendChild(caret);
+                savePreference("defaultResolution", this.textContent.trim());
             }
         });
     });
@@ -80,10 +82,12 @@ function setupDropdownEventListeners() {
             e.preventDefault();
             var dropdown = document.getElementById("aspect-ratio-dropdown");
             if (dropdown) {
+                dropdown.textContent = "";
                 dropdown.textContent = this.textContent + " ";
                 var caret = document.createElement("span");
                 caret.className = "caret";
                 dropdown.appendChild(caret);
+                savePreference("defaultAspectRatio", this.textContent.trim());
             }
         });
     });
@@ -94,12 +98,47 @@ function initializeDropdowns() {
     updateBalanceDisplay(null);
 }
 
+async function loadPreferencesAndInitialize() {
+    var apiKey = await getPreference("apiKey");
+
+    if (apiKey && apiKey.length > 0) {
+        var apiKeyInput = document.getElementById("api-key-input");
+        if (apiKeyInput) {
+            apiKeyInput.value = apiKey;
+        }
+
+        handleApiKeyEntry();
+    } else {
+        initializeDropdowns();
+    }
+}
+
 function handleApiKeyEntry() {
     var apiKey = getApiKey();
 
     if (apiKey && apiKey.length > 0) {
+        savePreference("apiKey", apiKey);
+
         fetchModels(apiKey).then(function(models) {
             populateModelDropdown(models);
+            
+            getPreference("selectedModel").then(function(savedModelId) {
+                if (savedModelId && savedModelId.length > 0) {
+                    var found = selectModelById(savedModelId, models);
+                    if (!found) {
+                        displayWarning("Saved model no longer available. Preference has been removed.");
+                        deletePreference("selectedModel");
+                    }
+                }
+            });
+            
+            getPreference("defaultResolution", "1K").then(function(savedResolution) {
+                setResolution(savedResolution);
+            });
+            
+            getPreference("defaultAspectRatio", "1:1").then(function(savedAspectRatio) {
+                setAspectRatio(savedAspectRatio);
+            });
         }).catch(function(error) {
             console.error("Error fetching models:", error);
             displayError("Failed to fetch models: " + error.message);
@@ -112,6 +151,7 @@ function handleApiKeyEntry() {
             updateBalanceDisplay(null, "Balance unavailable - check API key permissions");
         });
     } else {
+        savePreference("apiKey", "");
         clearModelDropdown();
         updateBalanceDisplay(null);
     }
