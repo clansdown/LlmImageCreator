@@ -168,16 +168,6 @@ function getAspectRatio() {
 }
 
 /**
- * Gets the API key from the input field
- * @returns {string} API key value
- */
-function getApiKey() {
-    var input = document.getElementById("api-key-input");
-    if (!input) return "";
-    return input.value.trim();
-}
-
-/**
  * Gets the user's prompt from the textarea
  * @returns {string} User's input prompt
  */
@@ -325,17 +315,41 @@ function createConversationItem(timestamp, conversation) {
     var clone = template.content.cloneNode(true);
     var item = clone.querySelector(".conversation-item");
 
+    item.dataset.timestamp = timestamp;
+    
     var date = new Date(timestamp * 1000);
     var dateStr = date.toLocaleDateString() + " " + date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
-    clone.querySelector(".conversation-date").textContent = dateStr;
+    
+    loadSummary(timestamp).then(function(summary) {
+        var title = summary && summary.title ? summary.title : "New Conversation";
+        clone.querySelector(".conversation-date").textContent = title;
+        clone.querySelector(".conversation-preview").textContent = dateStr + " (" + conversation.entries.length + " messages)";
+        
+        if (summary && title !== "New Conversation" && title && title.trim().length > 0) {
+            return;
+        }
+        
+        if (conversation.entries && conversation.entries.length > 0) {
+            var firstPrompt = conversation.entries[0].message.text;
+            if (firstPrompt) {
+                generateConversationTitle(firstPrompt).then(function(newTitle) {
+                    if (newTitle && newTitle.trim().length > 0) {
+                        updateConversationSummary(timestamp, newTitle).then(function(summaryData) {
+                            updateConversationListItemTitle(timestamp, summaryData.title);
+                        }).catch(function(e) {
+                            console.error("Error saving new title:", e);
+                        });
+                    }
+                }).catch(function(e) {
+                    console.error("Error generating title for existing conversation:", e);
+                });
+            }
+        }
+    }).catch(function() {
+        clone.querySelector(".conversation-date").textContent = "New Conversation";
+        clone.querySelector(".conversation-preview").textContent = dateStr + " (" + conversation.entries.length + " messages)";
+    });
 
-    var previewText = conversation.entries[0].message.text;
-    if (previewText.length > 50) {
-        previewText = previewText.substring(0, 50) + "...";
-    }
-    clone.querySelector(".conversation-preview").textContent = previewText + " (" + conversation.entries.length + " messages)";
-
-    item.dataset.timestamp = timestamp;
     item.addEventListener("click", function() {
         loadConversationIntoView(timestamp);
     });
@@ -417,6 +431,213 @@ function initTooltips() {
 }
 
 /**
+ * Initializes a Bootstrap tooltip for a single element
+ * @param {HTMLElement} element - Element to initialize tooltip for
+ * @returns {void}
+ */
+function initTooltipForElement(element) {
+    if (element && element.getAttribute("data-bs-toggle") === "tooltip") {
+        new bootstrap.Tooltip(element);
+    }
+}
+
+/**
+ * Updates the conversation list after adding a new entry
+ * @returns {Promise<void>}
+ */
+async function updateConversationList() {
+    var timestamps = await listConversations();
+    await populateConversationList(timestamps);
+}
+
+/**
+ * Updates a single conversation list item's title without full refresh
+ * @param {number} timestamp - Conversation timestamp
+ * @param {string} newTitle - New title to display
+ * @returns {void}
+ */
+function updateConversationListItemTitle(timestamp, newTitle) {
+    var historyContainer = document.getElementById("conversation-history");
+    if (!historyContainer) return;
+    
+    var item = historyContainer.querySelector('.conversation-item[data-timestamp="' + timestamp + '"]');
+    if (item) {
+        var dateElement = item.querySelector(".conversation-date");
+        if (dateElement) {
+            dateElement.textContent = newTitle;
+        }
+    }
+}
+
+/**
+ * Updates the date/message count preview for a conversation item
+ * @param {number} timestamp - Conversation timestamp
+ * @returns {Promise<void>}
+ */
+async function updateConversationListDate(timestamp) {
+    var conversation = await loadConversation(timestamp);
+    if (!conversation) return;
+    
+    var historyContainer = document.getElementById("conversation-history");
+    if (!historyContainer) return;
+    
+    var item = historyContainer.querySelector('.conversation-item[data-timestamp="' + timestamp + '"]');
+    if (item) {
+        var previewElement = item.querySelector(".conversation-preview");
+        if (previewElement) {
+            previewElement.textContent = conversation.entries.length + " messages";
+        }
+    }
+}
+
+/**
+ * Renders a single conversation entry using the template
+ * @param {Object} entry - Conversation entry to render
+ * @param {number} index - Entry index in conversation
+ * @param {number} conversationTimestamp - Conversation timestamp for image loading
+ * @returns {void}
+ */
+function renderMessageEntry(entry, index, conversationTimestamp) {
+    var conversationArea = document.getElementById("conversation-area");
+    if (!conversationArea) return;
+
+    var template = document.getElementById("message-entry-template");
+    if (!template) return;
+
+    var clone = template.content.cloneNode(true);
+    var messageEntry = clone.querySelector(".message-entry");
+
+    clone.querySelector(".user-prompt-text").textContent = entry.message.text;
+
+    var imagesContainer = clone.querySelector(".images-container");
+    if (entry.response.imageFilenames && entry.response.imageFilenames.length > 0) {
+        entry.response.imageFilenames.forEach(function(filename, imgIndex) {
+            var resolution = entry.response.imageResolutions ? entry.response.imageResolutions[imgIndex] : "1K";
+            getImage(conversationTimestamp, parseInt(filename, 10)).then(function(blob) {
+                if (!blob) return;
+                
+                var template = document.getElementById("image-entry-template");
+                var imgTemplate = template.content.cloneNode(true);
+                var imgItemContainer = imgTemplate.querySelector(".image-item-container");
+                var imgWrapper = imgTemplate.querySelector(".image-wrapper");
+                var imgElement = imgTemplate.querySelector(".generated-image");
+                
+                var objectUrl = URL.createObjectURL(blob);
+                imgElement.onload = function() {
+                    URL.revokeObjectURL(objectUrl);
+                    imgWrapper.style.width = imgElement.width + "px";
+                    imgWrapper.style.height = imgElement.height + "px";
+                };
+                imgElement.src = objectUrl;
+                imgElement.style.maxWidth = "100%";
+                imgElement.style.height = "auto";
+                imgElement.dataset.conversationTimestamp = conversationTimestamp;
+                imgElement.dataset.entryIndex = index;
+                imgElement.dataset.imageIndex = imgIndex;
+                
+                var downloadBtn = imgTemplate.querySelector(".download-btn");
+                downloadBtn.className = "btn btn-sm btn-outline-light";
+                downloadBtn.dataset.conversationTimestamp = conversationTimestamp;
+                downloadBtn.dataset.entryIndex = index;
+                downloadBtn.dataset.imageIndex = imgIndex;
+                downloadBtn.dataset.filename = filename;
+                downloadBtn.addEventListener("click", function(e) {
+                    var ts = parseInt(conversationTimestamp, 10);
+                    var fn = filename;
+                    getImage(ts, parseInt(fn, 10)).then(function(imgBlob) {
+                        if (!imgBlob) return;
+                        var url = URL.createObjectURL(imgBlob);
+                        var a = document.createElement("a");
+                        a.href = url;
+                        a.download = "image_" + ts + "_" + fn + ".png";
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        setTimeout(function() {
+                            URL.revokeObjectURL(url);
+                        }, 100);
+                    });
+                });
+                initTooltipForElement(downloadBtn);
+                
+                var regenerateNewBtn = imgTemplate.querySelector(".regenerate-new-btn");
+                regenerateNewBtn.className = "btn btn-sm btn-outline-light";
+                regenerateNewBtn.dataset.entryIndex = index;
+                regenerateNewBtn.dataset.imageIndex = imgIndex;
+                regenerateNewBtn.addEventListener("click", function() {
+                    handleRegenerateWithNewSeed(index, imgIndex);
+                });
+                initTooltipForElement(regenerateNewBtn);
+                
+                var regenerateLargerBtn = imgTemplate.querySelector(".regenerate-larger-btn");
+                regenerateLargerBtn.className = "btn btn-sm btn-outline-light";
+                regenerateLargerBtn.disabled = (resolution === "4K");
+                regenerateLargerBtn.dataset.entryIndex = index;
+                regenerateLargerBtn.dataset.imageIndex = imgIndex;
+                regenerateLargerBtn.addEventListener("click", function() {
+                    handleRegenerateLarger(index, imgIndex);
+                });
+                initTooltipForElement(regenerateLargerBtn);
+                
+                imagesContainer.appendChild(imgItemContainer);
+            });
+        });
+    }
+
+    var llmTextBtn = clone.querySelector(".toggle-llm-text");
+    var llmTextContent = clone.querySelector(".llm-text-content");
+    var expandIcon = clone.querySelector(".expand-icon");
+    var collapseIcon = clone.querySelector(".collapse-icon");
+    var btnText = clone.querySelector(".btn-text");
+    var copyLlmBtn = clone.querySelector(".copy-llm-btn");
+    
+    initTooltipForElement(llmTextBtn);
+    initTooltipForElement(copyLlmBtn);
+    
+    if (entry.response.text) {
+        clone.querySelector(".llm-text-body").textContent = entry.response.text;
+        
+        llmTextBtn.addEventListener("click", function() {
+            if (llmTextContent.classList.contains("collapsed")) {
+                llmTextContent.classList.remove("collapsed");
+                expandIcon.style.display = "none";
+                collapseIcon.style.display = "inline";
+                btnText.textContent = " Hide Response";
+            } else {
+                llmTextContent.classList.add("collapsed");
+                expandIcon.style.display = "inline";
+                collapseIcon.style.display = "none";
+                btnText.textContent = " Show Response";
+            }
+        });
+
+        copyLlmBtn.addEventListener("click", function() {
+            navigator.clipboard.writeText(entry.response.text).then(function() {
+                var originalHtml = copyLlmBtn.innerHTML;
+                copyLlmBtn.innerHTML = "<span>Copied!</span>";
+                setTimeout(function() {
+                    copyLlmBtn.innerHTML = originalHtml;
+                }, 1500);
+            });
+        });
+    } else {
+        llmTextBtn.style.display = "none";
+    }
+
+    var copyToTextareaBtn = clone.querySelector(".copy-to-textarea-btn");
+    copyToTextareaBtn.addEventListener("click", function() {
+        var userInput = document.getElementById("user-input");
+        if (userInput) {
+            userInput.value = entry.message.text;
+            userInput.focus();
+        }
+    });
+    initTooltipForElement(copyToTextareaBtn);
+
+    conversationArea.appendChild(messageEntry);
+}
+
+/**
  * Clears the conversation area in the right column
  */
 function clearConversationArea() {
@@ -433,6 +654,104 @@ function clearUserInput() {
     if (!textarea) return;
     textarea.value = "";
     setGenerateButtonState(false);
+}
+
+/**
+ * Regenerates image with a new random seed
+ * @param {number} entryIndex - Index of the entry in conversation
+ * @param {number} imageIndex - Index of the image within the entry
+ * @returns {Promise<void>}
+ */
+async function handleRegenerateWithNewSeed(entryIndex, imageIndex) {
+    if (!currentConversation || !currentConversation.entries[entryIndex]) return;
+    var entry = currentConversation.entries[entryIndex];
+    
+    var apiKey = getApiKey();
+    if (!apiKey) return;
+
+    var aspectRatio = getAspectRatio();
+    var resolution = entry.response.imageResolutions ? entry.response.imageResolutions[imageIndex] : "1K";
+    
+    var imageConfig = {
+        imageSize: resolution,
+        aspectRatio: aspectRatio
+    };
+    
+    var newSeed = generateRandomSeed();
+    var prompt = entry.message.text;
+    
+    setLoadingState(true);
+    
+    generateImage(apiKey, prompt, selectedModel, SYSTEM_PROMPT, conversationHistory, imageConfig, newSeed)
+        .then(function(response) {
+            var urls = extractImageUrls(response);
+            if (urls.length === 0) return Promise.resolve();
+            
+            return saveImage(currentConversation.timestamp, urls[0]).then(function(newIndex) {
+                if (newIndex !== null) {
+                    entry.response.imageFilenames.push(String(newIndex));
+                    entry.response.imageResolutions.push(resolution);
+                    saveConversation(currentConversation.timestamp, currentConversation);
+                    renderConversation(currentConversation);
+                }
+            });
+        })
+        .catch(function(error) {
+            console.error("Error regenerating image:", error);
+            displayError(error.message);
+        })
+        .finally(function() {
+            setLoadingState(false);
+        });
+}
+
+/**
+ * Handles regenerate larger image with 4K resolution
+ * @param {number} entryIndex - Index of the entry in conversation
+ * @param {number} imageIndex - Index of the image within the entry
+ * @returns {Promise<void>}
+ */
+async function handleRegenerateLarger(entryIndex, imageIndex) {
+    if (!currentConversation || !currentConversation.entries[entryIndex]) return;
+    var entry = currentConversation.entries[entryIndex];
+    if (entry.response.imageResolutions[imageIndex] === "4K") return;
+
+    var apiKey = getApiKey();
+    if (!apiKey) return;
+    
+    var aspectRatio = getAspectRatio();
+
+    var imageConfig = {
+        imageSize: "4K",
+        aspectRatio: aspectRatio
+    };
+
+    var seed = entry.message.seed;
+    var prompt = entry.message.text;
+
+    setLoadingState(true);
+
+    generateImage(apiKey, prompt, selectedModel, SYSTEM_PROMPT, conversationHistory, imageConfig, seed)
+        .then(function(response) {
+            var urls = extractImageUrls(response);
+            if (urls.length === 0) return Promise.resolve();
+
+            return saveImage(currentConversation.timestamp, urls[0]).then(function(newIndex) {
+                if (newIndex !== null) {
+                    entry.response.imageFilenames.push(String(newIndex));
+                    entry.response.imageResolutions.push("4K");
+                    saveConversation(currentConversation.timestamp, currentConversation);
+                    renderConversation(currentConversation);
+                }
+            });
+        })
+        .catch(function(error) {
+            console.error("Error regenerating image:", error);
+            displayError(error.message);
+        })
+        .finally(function() {
+            setLoadingState(false);
+        });
 }
 
 /**
@@ -578,48 +897,8 @@ function renderConversation(conversation) {
 
     if (!conversation || !conversation.entries) return;
 
-    conversation.entries.forEach(function(entry) {
-        var userDiv = document.createElement("div");
-        userDiv.className = "user-message mb-3 p-3 bg-primary text-white rounded";
-        userDiv.textContent = entry.message.text;
-        conversationArea.appendChild(userDiv);
-
-        var assistantDiv = document.createElement("div");
-        assistantDiv.className = "assistant-message mb-3 p-3 bg-light rounded";
-
-        var assistantLabel = document.createElement("div");
-        assistantLabel.className = "text-muted small mb-1";
-        assistantLabel.textContent = "Assistant";
-        assistantDiv.appendChild(assistantLabel);
-
-        if (entry.response.text) {
-            var contentDiv = document.createElement("div");
-            contentDiv.className = "mb-2";
-            contentDiv.textContent = entry.response.text;
-            assistantDiv.appendChild(contentDiv);
-        }
-
-        if (entry.response.imageFilenames && entry.response.imageFilenames.length > 0) {
-            entry.response.imageFilenames.forEach(function(filename, index) {
-                var imageIndex = parseInt(filename, 10);
-                getImage(conversation.timestamp, imageIndex).then(function(blob) {
-                    if (!blob) return;
-                    var imgElement = document.createElement("img");
-                    var objectUrl = URL.createObjectURL(blob);
-                    imgElement.onload = function() {
-                        URL.revokeObjectURL(objectUrl);
-                    };
-                    imgElement.src = objectUrl;
-                    imgElement.className = "img-fluid mb-2";
-                    imgElement.alt = "Generated image " + (index + 1);
-                    imgElement.style.maxWidth = "100%";
-                    imgElement.style.height = "auto";
-                    assistantDiv.appendChild(imgElement);
-                });
-            });
-        }
-
-        conversationArea.appendChild(assistantDiv);
+    conversation.entries.forEach(function(entry, index) {
+        renderMessageEntry(entry, index, conversation.timestamp);
     });
 
     conversationArea.scrollTop = conversationArea.scrollHeight;

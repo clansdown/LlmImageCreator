@@ -14,6 +14,7 @@
  * @typedef {Object} ConversationResponse
  * @property {string|null} text - Any text content returned from generation
  * @property {Array<string>} imageFilenames - Filenames of generated images (e.g., ["1.png", "2.png"])
+ * @property {Array<string>} imageResolutions - Resolution for each image (e.g., ["1K", "2K"])
  * @property {Object} responseData - API response data (excludes binary image data)
  * @property {Object} generationData - Usage and cost information from generation query
  */
@@ -286,14 +287,6 @@ function handleApiKeyEntry() {
 }
 
 /**
- * Generates a random 32-bit signed integer for reproducible generation
- * @returns {number} Random integer in range -2147483648 to 2147483647
- */
-function generateRandomSeed() {
-    return Math.floor(Math.random() * 0x7FFFFFFF);
-}
-
-/**
  * Extracts image URLs from chat completion response
  * @param {Object} response - OpenRouter chat completion response
  * @returns {Array<string>} Array of image URLs
@@ -337,10 +330,16 @@ async function saveImagesToConversation(timestamp, response) {
  * @param {number} seed - Generation seed
  * @param {Object} response - OpenRouter chat completion response
  * @param {Array<string>} imageFilenames - Saved image filenames
+ * @param {Object} imageConfig - Image configuration options
  * @returns {ConversationEntry} Created conversation entry
  */
-function createConversationEntry(prompt, seed, response, imageFilenames) {
+function createConversationEntry(prompt, seed, response, imageFilenames, imageConfig) {
     var message = response.choices[0].message;
+    var resolution = imageConfig && imageConfig.imageSize ? imageConfig.imageSize : "1K";
+    var resolutions = [];
+    for (var i = 0; i < imageFilenames.length; i++) {
+        resolutions.push(resolution);
+    }
     var entry = {
         message: {
             systemPrompt: SYSTEM_PROMPT,
@@ -350,6 +349,7 @@ function createConversationEntry(prompt, seed, response, imageFilenames) {
         response: {
             text: message.content || null,
             imageFilenames: imageFilenames,
+            imageResolutions: resolutions,
             responseData: response,
             generationData: null
         }
@@ -384,6 +384,52 @@ async function fetchGenerationDataWithRetry(apiKey, generationId, maxRetries) {
         }
     }
     return null;
+}
+
+/**
+ * Initializes summary.json with placeholder
+ * @param {number} timestamp - Conversation timestamp
+ * @returns {Promise<void>}
+ */
+async function initializeConversationSummary(timestamp) {
+    var summaryData = {
+        title: "New Conversation",
+        imageCount: 0,
+        entryCount: 0,
+        created: timestamp,
+        updated: timestamp
+    };
+    await saveSummary(timestamp, summaryData);
+}
+
+/**
+ * Updates the conversation summary with current stats and optional new title
+ * @param {number} timestamp - Conversation timestamp
+ * @param {string} [title] - Optional new title
+ * @returns {Promise<Object>} Updated summary data
+ */
+async function updateConversationSummary(timestamp, title) {
+    var conversation = await loadConversation(timestamp);
+    if (!conversation) return null;
+    
+    var summary = await loadSummary(timestamp) || { title: "New Conversation" };
+    var imageCount = 0;
+    conversation.entries.forEach(function(entry) {
+        if (entry.response.imageFilenames) {
+            imageCount += entry.response.imageFilenames.length;
+        }
+    });
+    
+    var summaryData = {
+        title: title || summary.title,
+        imageCount: imageCount,
+        entryCount: conversation.entries.length,
+        created: summary.created || timestamp,
+        updated: Math.floor(Date.now() / 1000)
+    };
+    
+    await saveSummary(timestamp, summaryData);
+    return summaryData;
 }
 
 /**
@@ -459,10 +505,32 @@ function handleGenerate() {
             displayImageResponse(response);
 
             return saveImagesToConversation(currentConversation.timestamp, response).then(function(imageFilenames) {
-                var entry = createConversationEntry(prompt, seed, response, imageFilenames);
+                var entry = createConversationEntry(prompt, seed, response, imageFilenames, imageConfig);
                 currentConversation.entries.push(entry);
 
                 return saveConversation(currentConversation.timestamp, currentConversation).then(function() {
+                    renderConversation(currentConversation);
+                    clearUserInput();
+                    
+                    if (currentConversation.entries.length === 1) {
+                        initializeConversationSummary(currentConversation.timestamp).then(function() {
+                            updateConversationList();
+                        });
+                        generateConversationTitle(prompt).then(function(title) {
+                            if (title && title !== "New Conversation") {
+                                updateConversationSummary(currentConversation.timestamp, title).then(function(summaryData) {
+                                    updateConversationListItemTitle(currentConversation.timestamp, summaryData.title);
+                                });
+                            }
+                        }).catch(function() {
+                            console.log("Title generation failed, keeping placeholder");
+                        });
+                    } else {
+                        updateConversationSummary(currentConversation.timestamp).then(function() {
+                            updateConversationListDate(currentConversation.timestamp);
+                        });
+                    }
+                    
                     var generationId = response.id;
                     fetchGenerationDataWithRetry(apiKey, generationId, 5).then(function(generationData) {
                         if (generationData) {
@@ -470,9 +538,6 @@ function handleGenerate() {
                             saveConversation(currentConversation.timestamp, currentConversation);
                         }
                     });
-
-                    renderConversation(currentConversation);
-                    clearUserInput();
                 });
             });
         }

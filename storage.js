@@ -364,3 +364,42 @@ async function deleteImagesForConversation(timestamp) {
         console.error("Error deleting images:", e);
     }
 }
+
+/**
+ * Saves or updates summary.json for a conversation
+ * @param {number} timestamp - Conversation timestamp
+ * @param {Object} summaryData - Summary data object
+ * @returns {Promise<void>}
+ */
+async function saveSummary(timestamp, summaryData) {
+    try {
+        var root = await getOPFSHandle();
+        var convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
+        var convDir = await convsDir.getDirectoryHandle(String(timestamp), { create: true });
+        var fileHandle = await convDir.getFileHandle("summary.json", { create: true });
+        var writable = await fileHandle.createWritable();
+        await writable.write(JSON.stringify(summaryData, null, 2));
+        await writable.close();
+    } catch (e) {
+        console.error("Error saving summary:", e);
+    }
+}
+
+/**
+ * Loads summary.json for a conversation
+ * @param {number} timestamp - Conversation timestamp
+ * @returns {Promise<Object|null>} Summary data or null
+ */
+async function loadSummary(timestamp) {
+    try {
+        var root = await getOPFSHandle();
+        var convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
+        var convDir = await convsDir.getDirectoryHandle(String(timestamp));
+        var fileHandle = await convDir.getFileHandle("summary.json");
+        var file = await fileHandle.getFile();
+        var content = await file.text();
+        return JSON.parse(content);
+    } catch (e) {
+        return null;
+    }
+}

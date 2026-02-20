@@ -126,7 +126,7 @@
 
                 <form class="me-2">
                     
-                    <input id="api-key-input" type="password" class="form-control form-control-sm" placeholder="Enter OpenRouter API key" style="width: 250px;">
+                    <input id="api-key-input" type="password" class="form-control form-control-sm" data-bs-toggle="tooltip" data-bs-title="Enter your OpenRouter API key" placeholder="Enter OpenRouter API key" style="width: 250px;">
                 </form>
             </div>
 
@@ -161,6 +161,7 @@
 
     <div id="warning-display" style="display: none;"></div>
 
+    <!-- Template for conversation item in history sidebar -->
     <template id="conversation-item-template">
         <div class="conversation-item mb-2 p-2 rounded bg-light cursor-pointer" data-timestamp="">
             <div class="fw-bold conversation-date"></div>
@@ -168,10 +169,139 @@
         </div>
     </template>
 
+    <!-- Template for conversation message entry -->
+    <template id="message-entry-template">
+        <div class="message-entry mb-3">
+            <div class="card bg-dark text-white border-secondary">
+                <div class="card-header user-instructions bg-secondary">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <strong>Your Instructions:</strong>
+                        <button type="button" class="btn btn-sm btn-outline-light copy-to-textarea-btn" data-bs-toggle="tooltip" data-bs-title="Copy to textarea">
+                            <span><b>⇑</b></span>
+                        </button>
+                    </div>
+                    <div class="user-prompt-text mt-2 small"></div>
+                </div>
+                
+                <div class="card-body">
+                    <div class="images-container mb-3"></div>
+                    
+                    <div class="llm-response-section">
+                        <button type="button" class="btn btn-sm btn-outline-secondary toggle-llm-text mb-2" data-bs-toggle="tooltip" data-bs-title="Toggle response visibility">
+                            <span class="expand-icon">\u25BC</span>
+                            <span class="collapse-icon" style="display:none">\u25B2</span>
+                            <span class="btn-text">Show Response</span>
+                        </button>
+                        <div class="llm-text-content collapsed">
+                            <div class="d-flex justify-content-end mb-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary copy-llm-btn" data-bs-toggle="tooltip" data-bs-title="Copy text">
+                                    <span>⇑</span>
+                                </button>
+                            </div>
+                            <div class="llm-text-body"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- Template for generated image with controls -->
+    <template id="image-entry-template">
+        <div class="image-item-container">
+            <div class="image-wrapper">
+                <img class="generated-image">
+                <div class="bottom-buttons">
+                    <button type="button" class="download-btn" data-bs-toggle="tooltip" data-bs-title="Download image">
+                        <span>💾</span>
+                    </button>
+                </div>
+                <div class="top-buttons">
+                    <button type="button" class="regenerate-new-btn" data-bs-toggle="tooltip" data-bs-title="Regenerate with new seed">
+                        <span>⟳</span>
+                    </button>
+                    <button type="button" class="regenerate-larger-btn" data-bs-toggle="tooltip" data-bs-title="Regenerate in 4K resolution">
+                        <span>✨</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <style>
+        .message-entry .card {
+            border-color: #495057;
+        }
+        .user-instructions {
+            background-color: #495057 !important;
+            border-color: #495057 !important;
+        }
+        .llm-text-content.collapsed {
+            display: none;
+        }
+        .llm-text-content:not(.collapsed) {
+            display: block;
+        }
+        .llm-response-section button:disabled {
+            opacity: 0.5;
+        }
+        .images-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+        }
+        .image-item-container {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 0.5rem;
+        }
+        .image-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+        .image-wrapper img {
+            display: block;
+            max-width: 100%;
+            height: auto;
+        }
+        .image-wrapper .download-btn,
+        .image-wrapper .regenerate-larger-btn,
+        .image-wrapper .regenerate-new-btn {
+            position: absolute;
+            right: 5px;
+            padding: 8px 12px;
+            font-size: 1.6rem;
+            background-color: rgba(128, 128, 128, 0.5);
+            border: 1px solid black;
+            border-radius: 4px;
+        }
+        .image-wrapper .download-btn {
+            bottom: 5px;
+        }
+        .image-wrapper .top-buttons {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            display: flex;
+            align-items: center;
+            gap: 1.6rem;
+        }
+        .image-wrapper .top-buttons button {
+            position: static;
+            padding: 8px 12px;
+            font-size: 1.6rem;
+            background-color: rgba(128, 128, 128, 0.5);
+            border: 1px solid black;
+            border-radius: 4px;
+        }
+    </style>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script src="openrouter.js"></script>
     <script src="prompt.js"></script>
     <script src="storage.js"></script>
+    <script src="util.js"></script>
     <script src="ui.js"></script>
     <script src="agent.js"></script>
     <script>

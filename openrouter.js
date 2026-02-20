@@ -170,3 +170,54 @@ function getGenerationInfo(apiKey, generationId) {
         return response.json();
     });
 }
+
+/**
+ * Generates text-only completion for conversation title
+ * @param {string} apiKey - OpenRouter API key
+ * @param {string} prompt - User's prompt to summarize
+ * @param {string} systemPrompt - System prompt for title generation
+ * @param {string} model - Model ID (google/gemma-3n-e4b-it)
+ * @returns {Promise<string>} Generated title text
+ * @throws {Error} If API request fails
+ */
+function generateTitle(apiKey, prompt, systemPrompt, model) {
+    /** @type {Array<{role: string, content: string}>} */
+    var messages = [];
+    
+    messages.push({
+        role: "system",
+        content: systemPrompt
+    });
+    
+    messages.push({
+        role: "user",
+        content: prompt
+    });
+    
+    /** @type {Object} */
+    var body = {
+        model: model,
+        messages: messages
+    };
+    
+    return fetch(OPENROUTER_BASE_URL + "/chat/completions", {
+        method: "POST",
+        headers: {
+            "Authorization": "Bearer " + apiKey,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body)
+    }).then(function(response) {
+        if (!response.ok) {
+            return response.text().then(function(text) {
+                throw new Error("Failed to generate title: " + response.status + " - " + text);
+            });
+        }
+        return response.json();
+    }).then(function(data) {
+        if (data.choices && data.choices.length > 0 && data.choices[0].message) {
+            return data.choices[0].message.content || "";
+        }
+        return "";
+    });
+}
