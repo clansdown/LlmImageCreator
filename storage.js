@@ -20,8 +20,13 @@
  *             └── ... (sequential numbering for all images in conversation)
  */
 
+/** @type {string} */
 var STORAGE_PREFERENCES_DIR = "preferences";
+
+/** @type {string} */
 var STORAGE_CONVERSATIONS_DIR = "conversations";
+
+/** @type {string} */
 var STORAGE_IMAGES_DIR = "images";
 
 /**
@@ -95,6 +100,7 @@ async function listPreferences() {
     try {
         var root = await getOPFSHandle();
         var prefsDir = await ensureDirectory(root, STORAGE_PREFERENCES_DIR);
+        /** @type {Array<string>} */
         var keys = [];
         for await (var entry of prefsDir.values()) {
             if (entry.kind === "file") {
@@ -164,6 +170,7 @@ async function listConversations() {
     try {
         var root = await getOPFSHandle();
         var convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
+        /** @type {Array<number>} */
         var timestamps = [];
         for await (var entry of convsDir.values()) {
             if (entry.kind === "directory") {
@@ -251,6 +258,7 @@ async function saveImage(timestamp, imageData) {
 
         var base64Data = imageData;
         if (imageData.startsWith("data:")) {
+            /** @type {Array<string>} */
             var parts = imageData.split(",");
             if (parts.length > 1) {
                 base64Data = parts[1];
@@ -258,6 +266,7 @@ async function saveImage(timestamp, imageData) {
         }
 
         var binaryString = atob(base64Data);
+        /** @type {Uint8Array} */
         var bytes = new Uint8Array(binaryString.length);
         for (var i = 0; i < binaryString.length; i++) {
             bytes[i] = binaryString.charCodeAt(i);

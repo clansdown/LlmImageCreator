@@ -3,9 +3,16 @@
  * Handles initialization and user interaction flow
  */
 
+/** @type {string | null} */
 var selectedModel = null;
+
+/** @type {Array<{role: string, content: string}>} */
 var conversationHistory = [];
+
+/** @type {boolean} */
 var isGenerating = false;
+
+/** @type {any} */
 var deferredPrompt = null;
 
 window.addEventListener('beforeinstallprompt', function(e) {
@@ -45,12 +52,19 @@ if (installBtn) {
 window.addEventListener('online', handleOnlineStatusChange);
 window.addEventListener('offline', handleOnlineStatusChange);
 
+/**
+ * Handles online/offline status changes
+ */
 function handleOnlineStatusChange() {
     if (!navigator.onLine) {
         displayWarning('Network unavailable. Some features may not work offline.');
     }
 }
 
+/**
+ * Checks if the browser is online
+ * @returns {boolean} True if online, false otherwise
+ */
 function isOnline() {
     return navigator.onLine;
 }
@@ -68,6 +82,9 @@ function init() {
     }
 }
 
+/**
+ * Sets up all event listeners for the application
+ */
 function setupEventListeners() {
     var apiKeyForm = document.querySelector("#api-key-input").closest("form");
     if (apiKeyForm) {
@@ -111,6 +128,9 @@ function setupEventListeners() {
     setupDropdownEventListeners();
 }
 
+/**
+ * Sets up event listeners for dropdown menus (resolution and aspect ratio)
+ */
 function setupDropdownEventListeners() {
     var resolutionItems = document.querySelectorAll("#resolution-menu .dropdown-item");
     resolutionItems.forEach(function(item) {
@@ -145,11 +165,18 @@ function setupDropdownEventListeners() {
     });
 }
 
+/**
+ * Initializes dropdowns to default/empty state
+ */
 function initializeDropdowns() {
     clearModelDropdown();
     updateBalanceDisplay(null);
 }
 
+/**
+ * Loads saved preferences from storage and initializes the application
+ * @returns {Promise<void>}
+ */
 async function loadPreferencesAndInitialize() {
     var apiKey = await getPreference("apiKey");
 
@@ -165,6 +192,9 @@ async function loadPreferencesAndInitialize() {
     }
 }
 
+/**
+ * Handles API key entry - fetches models and balance
+ */
 function handleApiKeyEntry() {
     var apiKey = getApiKey();
 
@@ -214,6 +244,9 @@ function handleApiKeyEntry() {
     }
 }
 
+/**
+ * Handles the generate button click - initiates image generation
+ */
 function handleGenerate() {
     if (isGenerating) return;
 
@@ -244,6 +277,7 @@ function handleGenerate() {
 
     var resolution = getResolution();
     var aspectRatio = getAspectRatio();
+    /** @type {{imageSize: string, aspectRatio: string}} */
     var imageConfig = {
         imageSize: resolution,
         aspectRatio: aspectRatio

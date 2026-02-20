@@ -1,7 +1,18 @@
+/**
+ * Service Worker for LlmImageCreator
+ * Handles offline caching and network request interception
+ */
+
+/** @type {string} */
 var CACHE_NAME = 'llmimagecreator-v1';
+
+/** @type {string} */
 var STATIC_CACHE = 'static-v1';
+
+/** @type {string} */
 var CDN_CACHE = 'cdn-v1';
 
+/** @type {Array<string>} */
 var STATIC_ASSETS = [
     '/',
     '/index.html',
@@ -12,11 +23,16 @@ var STATIC_ASSETS = [
     '/agent.js'
 ];
 
+/** @type {Array<string>} */
 var CDN_URLS = [
     'https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css',
     'https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js'
 ];
 
+/**
+ * Handles service worker installation
+ * @param {ExtendableEvent} event - Install event
+ */
 self.addEventListener('install', function(event) {
     event.waitUntil(
         caches.open(STATIC_CACHE).then(function(cache) {
@@ -40,6 +56,10 @@ self.addEventListener('install', function(event) {
     );
 });
 
+/**
+ * Handles service worker activation
+ * @param {ExtendableEvent} event - Activate event
+ */
 self.addEventListener('activate', function(event) {
     event.waitUntil(
         caches.keys().then(function(cacheNames) {
@@ -56,6 +76,10 @@ self.addEventListener('activate', function(event) {
     );
 });
 
+/**
+ * Handles fetch events - intercepts and caches network requests
+ * @param {FetchEvent} event - Fetch event
+ */
 self.addEventListener('fetch', function(event) {
     var url = event.request.url;
 

@@ -1,266 +1,174 @@
 # AGENTS.md - Guidelines for Agentic Coding in LlmImageCreator
 
-This file provides instructions for AI coding agents (e.g., opencode) working on the LlmImageCreator repository. It includes code style guidelines, and conventions to maintain consistency. The project is a stand-alone HTML/JavaScript application for generating images interactively using openrouter.
+This file provides instructions for AI coding agents (e.g., opencode) working on the LlmImageCreator repository. It includes code style guidelines, conventions, and requirements for maintaining consistency. The project is a stand-alone HTML/JavaScript application for generating images interactively using OpenRouter.
 
-No linting or testing is required for this project. The agent should not attempt any testing.
+**CRITICAL**: The existing codebase (agent.js, sw.js) is NON-COMPLIANT with JSDoc requirements. Agents must write NEW code that strictly follows these guidelines.
 
-## 1. Code Style Guidelines
+## 1. General Principles
 
-Follow these rules for consistency. The codebase uses vanilla JavaScript (ES5+) split across multiple files loaded by `index.html`.
-
-### General Principles
 - **Readability First**: Code should be self-explanatory. Use descriptive names and structures.
-- **Modularity**: Keep functions small (<50 lines). One responsibility per function.
-- **Security**: Never expose secrets. Validate user inputs (e.g., CSV data).
+- **Modularity**: Keep functions small (<100 lines). One responsibility per function.
+- **Security**: Never expose secrets. Validate user inputs.
 - **Performance**: Optimize for client-side (e.g., avoid large loops; use efficient data structures like Maps/Sets).
 - **Browser Compatibility**: Support modern browsers (Chrome, Firefox, Safari). Avoid polyfills unless necessary.
 - **Code Functionality**: Agents must write fully functional, production-ready code unless the user explicitly requests stubs, placeholders, or incomplete implementations. Avoid TODO comments or non-working code segments—ensure all logic is complete and runnable.
 
-### File Structure
-- `index.html`: HTML structure with Bootstrap CSS/JS via CDN, inline scripts for DOMContentLoaded handlers, and modals for user interactions.
-- new files should be created when appropraite to group similar logic that is not similar to other logic
+## 2. Testing
 
-### Imports and Dependencies
-- No ES6 imports (vanilla JS). Load scripts in order: `storage.js`, `parse.js`, `calculator.js`.
-- If adding libs (e.g., PapaParse for CSV), use `<script src="...">` in HTML after Bootstrap.
-- For styling, include Bootstrap via CDN links in `<head>` (CSS) and before `</body>` (JS).
-- Check for existing usage before adding: e.g., search codebase for similar libs.
+- **Agents DO NOT run tests**: User performs all manual testing
+- `./run_test_webserver.sh`: User starts local server at http://localhost:8001/
+- No automated tests - manual browser testing only
 
-### Formatting
-- **Indentation**: 4 spaces (match editor default).
-- **Line Length**: <140 characters.
-- **Semicolons**: Always use at end of statements.
-- **Braces**: Always use for blocks (e.g., `if (cond) { ... }`).
-- **Spacing**: One space around operators (`a + b`), after commas, no trailing spaces.
-- **Blank Lines**: One between functions, two between major sections.
-- **Quotes**: Single quotes for strings (`'string'`), double for HTML attributes.
+## 3. JSDoc Requirements - MANDATORY
 
-### Types and TypeScript
-- No TypeScript. Use JSDoc for type annotations.
-- Example: `/** @param {Array<Object>} players - Array of player objects with string/number fields */`
-- Document ALL params, returns, and complex types (e.g., `{start: string, end: string}`). This includes local variables with complex types.
-- Document ALL arrays, including in local variables, with jsdoc types.
+Every function and array/object declaration MUST have proper JSDoc documentation.
 
-### JSDoc - Mandatory for All Declarations
+### Functions - REQUIRED Tags
+- `@param` - All parameters with types
+- `@returns` - Return type (even for void functions)
+- `@throws` - Any errors thrown
 
-**CRITICAL REQUIREMENT**: Every array and object declaration MUST have an `@type {}` JSDoc comment immediately before it, unless assigned from a well-documented function return value.
-
-**Examples:**
-
-**Required JSDoc for inline arrays/objects:**
 ```javascript
-/** @type {Array<{candidate: PlayerObject, displaced: PlayerObject, slot: {start: string, end: string}}>} */
-const displacements = [];
+// GOOD
+/**
+ * Fetches all available models from OpenRouter
+ * @param {string} apiKey - OpenRouter API key
+ * @returns {Promise<Array<Object>>} Array of model objects
+ * @throws {Error} If API request fails
+ */
+function fetchModels(apiKey) { ... }
 
-/** @type {Array<WaitingPlayer>} */
-const toAdd = [];
-
-/** @type {Set<string>} */
-const taken = new Set([...]);
-
-/** @type {Array<{name: string, timestamp: number}>} */
-const files = [];
+// BAD - NO JSDoc
+function handleApiKeyEntry() { ... }
 ```
 
-**JSDoc NOT required (well-documented return):**
+### Arrays/Objects - REQUIRED @type
+- Every inline array `[]` or object `{}` needs `@type` JSDoc
+- Exception: Variables assigned from well-documented function returns
+
 ```javascript
-// No JSDoc needed - function has @returns {Array<TimeRange>}
-const slots = generateTimeSlots();
+// GOOD
+/** @type {Array<{role: string, content: string}>} */
+var conversationHistory = [];
+
+// GOOD - from documented function
+var slots = generateTimeSlots(); // No @type needed
+
+// BAD - NO @type
+var selectedModel = null;
+var conversationHistory = [];
 ```
 
-**For object parameters in functions:**
-- Use @typedef definitions for complex object types
-- Inline @param types for simple object structures
-- NEVER use generic `Object` or `Array<Object>` without properties specified
-
-**Examples:**
+### @typedef for Complex Types
 ```javascript
 /**
- * @typedef {Object} Appointment
- * @property {string} start - Slot start time in HH:MM.
- * @property {string} end - Slot end time in HH:MM.
- * @property {string} alliance - Player's alliance.
- * @property {string} player - Player's name.
- * @property {string|number} speedups - Speedup info.
- * @property {number} truegold - TrueGold pieces.
+ * @typedef {Object} ImageConfig
+ * @property {string} imageSize - Image size (1K, 2K, 4K)
+ * @property {string} aspectRatio - Aspect ratio (1:1, 16:9, etc)
  */
 ```
 
-### Naming Conventions
-- **Variables/Functions**: camelCase (e.g., `parseCsvToObjects`, `playerAlliance`).
-- **Constants**: UPPER_SNAKE_CASE (e.g., `MAX_SLOTS = 48`).
-- **Objects/Properties**: camelCase (e.g., `player.availableTimeRanges`).
-- **IDs/Selectors**: kebab-case for HTML IDs (e.g., `day1Table`), camelCase for JS variables.
-- **Descriptive**: Avoid abbreviations; e.g., `timeSlotStartUtc` not `tsStart`.
+## 4. File Structure & Dependencies
 
-### Naming Clarity - Self-Documenting Code
-
-**CRITICAL REQUIREMENT**: Variable and function names must be maximally descriptive. Avoid all abbreviations and single-letter names except for loop counters in trivial contexts.
-
-**Naming Rules:**
-
-1. **Variables**: Use full descriptive names
-   - ❌ `p`, `a`, `h`, `m`, `tsStart`
-   - ✅ `player`, `appointment`, `hour`, `minute`, `timeSlotStart`
-
-2. **Loop Indices**: Use descriptive names in nested or complex logic
-   - ❌ `i`, `j` (in complex nested loops)
-   - ✅ `candidateIndex`, `assignedIndex` (in displacement logic)
-
-3. **Boolean Flags**: Use `is/has/can` prefixes
-   - ❌ `hasAssig`, `isConstr`, `addedToOtherDay`
-   - ✅ `hasAssignment`, `hasConstructionAssignment`, `hasValidDayAssignment`
-
-4. **Functions**: Use verb-noun pattern indicating action
-   - ❌ `getAppointments`, `filter`, `parse`
-   - ✅ `getMinisterAppointments`, `filterQualifiedPlayers`, `parseCsvToObjects`
-
-5. **Avoid ambiguous names**:
-   - ❌ `taken`, `changed`, `candidate` (context-dependent)
-   - ✅ `takenSlots`, `scheduleChanged`, `spilloverCandidate`
-
-### Function Modularity - Keep Functions Small
-
-**CRITICAL REQUIREMENT**: Functions must not exceed 50 lines of actual code (excluding comments). If a function grows larger, immediately refactor it into smaller, single-purpose functions.
-
-**Refactoring Guidelines:**
-
-1. **One Responsibility Per Function**: Each function should do one thing well.
-   - ❌ `submitAddPlayer()` (287 lines) does: form parsing, validation, allocation, scheduling, UI updates
-   - ✅ Split into: `parseFormData()`, `validatePlayer()`, `allocateSpeedups()`, `schedulePlayer()`, `updateUI()`
-
-2. **Extract Logical Sections**: If a function has distinct logical sections (4+ lines each), extract them:
-   - Identify: "This section handles X"
-   - Extract to: `handleXSection()`
-
-3. **Common Patterns to Extract**:
-   - DOM creation/manipulation
-   - Data transformation/conversion
-   - Condition checking/validation
-   - Loop processing with complex logic
-
-**Example Refactoring:**
-
-**Before (75+ lines):**
-```javascript
-function scheduleSpilloverDay(schedulerData, spilloverDay, players = null) {
-    // Lines 400-420: Candidate aggregation
-    const spilloverCandidates = [];
-    const seenPlayers = new Set();
-    [constructDay, researchDay, 4].forEach(sourceDay => {
-        // ... 20 lines of aggregation logic
-    });
-    // Lines 430-458: Assignment loop with multiple checks
-    // ... 28 lines of assignment logic
-    // Lines 461-472: Waiting list management
-    // ... 11 lines of waiting list logic
-}
+### Script Loading Order (in index.html)
+```
+openrouter.js  →  prompt.js  →  storage.js  →  ui.js  →  agent.js
 ```
 
-**After (extract helper functions):**
-```javascript
-function scheduleSpilloverDay(schedulerData, spilloverDay, players = null) {
-    const candidates = players || aggregateSpilloverCandidates(schedulerData, spilloverDay);
-    const unscheduled = assignSpilloverCandidates(candidates, schedulerData, spilloverDay);
-    addUnscheduledToWaitingList(unscheduled, schedulerData, spilloverDay);
-}
+### File Purposes
+- `index.html`: Main HTML with Bootstrap 5, inline styles, script loading
+- `openrouter.js`: OpenRouter API calls (fetchModels, fetchBalance, generateImage)
+- `prompt.js`: System prompt constant
+- `storage.js`: OPFS storage (preferences, conversations, images)
+- `ui.js`: DOM manipulation and UI updates
+- `agent.js`: Main orchestration and event handling
+- `sw.js`: Service Worker for offline support
 
-function aggregateSpilloverCandidates(schedulerData, excludeDay) { /* ... */ }
-function assignSpilloverCandidates(candidates, schedulerData, spilloverDay) { /* ... */ }
-function addUnscheduledToWaitingList(unscheduled, schedulerData, spilloverDay) { /* ... */ }
+### Dependencies
+- Bootstrap 5 via CDN (CSS in `<head>`, JS before `</body>`)
+- No ES6 imports - use vanilla JS with `<script src="...">` tags
+
+## 5. Code Formatting
+
+- **Indentation**: 4 spaces
+- **Line Length**: <140 characters
+- **Semicolons**: Always use at end of statements
+- **Braces**: Always use for blocks (`if (cond) { ... }`)
+- **Spacing**: One space around operators, after commas, no trailing spaces
+- **Blank Lines**: One between functions, two between major sections
+- **Quotes**: Single quotes for strings, double for HTML attributes
+- **Declarations**: Use `var` (legacy codebase - maintain consistency)
+
+## 6. Naming Conventions
+
+- **Variables/Functions**: camelCase (e.g., `parseCsvToObjects`)
+- **Constants**: UPPER_SNAKE_CASE (e.g., `OPENROUTER_BASE_URL`)
+- **HTML IDs**: kebab-case (e.g., `api-key-input`)
+- **Descriptive Names**: Avoid abbreviations
+  - ❌ `p`, `a`, `tsStart`
+  - ✅ `player`, `appointment`, `timeSlotStart`
+
+## 7. Function Guidelines
+
+- **Max 100 lines** per function (excluding comments)
+- **Single Responsibility**: One function does one thing
+- **Parameters**: Limit to <5; use objects for many params
+- **Early Returns**: Use for clarity and reduced nesting
+- **Arrow Functions**: Use for short callbacks only
+
+```javascript
+// BAD - 100+ lines doing multiple things
+function submitAddPlayer() { /* ... */ }
+
+// GOOD - split into smaller functions
+function handleApiKeyEntry() { ... }
+function handleGenerate() { ... }
 ```
 
-### Functions
-- **Declaration**: Use `function name(params) { ... }` for named functions.
-- **Parameters**:
-  - Limit to <5. Use objects for many params (e.g., `options = {}`).
-  - Document complex object parameters with @typedef.
-- **Returns**:
-  - Explicit return; use early returns for clarity.
-  - Always document with `@returns` (even for void functions).
-- **Throws**:
-  - Document with `@throws` for ANY error-throwing function.
-  - Must be present if function contains `throw error` or throws from other calls.
-- **Arrow Functions**: Use for short, anonymous callbacks (e.g., `players.forEach(player => { ... })`).
-- **Documentation**:
-  - JSDoc for ALL functions without exception.
-  - Required tags: `@param`, `@returns`, `@throws` (if applicable).
-  - No undocumented functions allowed in codebase.
+## 8. Variables & Data Structures
 
-### Variables and Data Structures
-- **Declaration**: Use `const` for immutable, `let` for mutable. Avoid `var`.
-- **Scope**: Minimize global scope; use IIFEs if needed (rarely).
-- **Arrays/Objects**: Use literals (e.g., `[]`, `{}`). Prefer Maps for key-value if keys are dynamic.
-- **Strings**: Template literals for interpolation (e.g., `${alliance}/${player}`).
-- **Type Annotations**: All array/object literals MUST have preceding @type JSDoc comments.
+- **Scope**: Minimize globals; use objects to group related data
+- **Arrays**: Use literals `[]`, prefer Maps for key-value
+- **Objects**: Use literals `{}`
+- **Strings**: Template literals for interpolation `` `${var}` ``
 
-### Error Handling
-- **Validation**: Check inputs early (e.g., `if (!csvText) return [];`).
-- **Throws**: Use for critical errors (e.g., invalid CSV format). ALWAYS document with @throws.
-- **User Feedback**: For UI, update DOM with messages (e.g., alert or div text).
-- **Logging**: Use `console.log` for debug, remove in production. No production logs.
+## 9. Error Handling
 
-### Comments and Documentation
-- **No Inline Comments**: Avoid `// comment` unless explaining complex logic. Code should be clear.
-- **Section Comments**: Use block comments (`/* */`) to indicate major code sections (e.g., `/* Data Processing Section */`). Keep concise and place above sections for clarity.
-- **JSDoc Only**: Use for all functions/variables with properly typed annotations. All complex types must be explicitly typed with properties (e.g., `{name: string, age: number}`), not generic `Object` or `Array<Object>`. Include `@param`, `@returns`, `@throws` if applicable. Example:
-  ```
-  /**
-   * Parses CSV text into objects.
-   * @param {string} csvText - Raw CSV data.
-   * @returns {Array<{alliance: string, player: string}>} Parsed players with alliance and player fields.
-   */
-  ```
-- **README Updates**: Update `README.md` for new features; keep concise.
+- **Validation**: Check inputs early (`if (!apiKey) return;`)
+- **Throws**: For critical errors; ALWAYS document with `@throws`
+- **User Feedback**: Display errors via `displayError()` in UI
+- **Logging**: Use `console.log` for debug only
 
-### HTML/CSS
-- **Framework**: Use Bootstrap 5 for all styling via CDN. Include in `<head>` for CSS and before `</body>` for JS bundle.
-- **Modals**: All dialog interactions use Bootstrap modals with data-bs-dismiss, event handlers, and inline onclick/change attributes for dynamic behavior.
-- **Layout**: Use Bootstrap rows and columns (`row`, `col-*`) for responsive layouts where applicable (e.g., arrangements of tables, inputs, modal forms).
-- **Structure**: Semantic tags (e.g., `<table>`, `<ul>`, `<modal>`). IDs for JS access. Apply Bootstrap classes for styling instead of custom CSS.
-- **CSS**: Avoid custom CSS; rely on Bootstrap classes. If needed, use inline or `<style>` sparingly.
-- **Accessibility**: Add `aria-label` for inputs and buttons without visible labels. Bootstrap components are accessible by default.
+## 10. HTML/CSS & Bootstrap
 
-### Security and Best Practices
-- **Input Sanitization**: Trim/validate CSV fields. Escape HTML if displaying user data.
-- **No Secrets**: Never hardcode keys; use env vars if needed (not applicable here).
-- **XSS Prevention**: Use `textContent` for DOM updates, never innerHTML with untrusted data.
-- **Performance**: Limit DOM manipulations; batch updates.
+- **Framework**: Bootstrap 5 via CDN
+- **Custom CSS**: Inline `<style>` in index.html for layout-specific needs
+- **Modals**: Bootstrap modals with `data-bs-dismiss`
+- **Accessibility**: Add `aria-label` for inputs/buttons without labels
 
-### Cursor Rules
-- None found (no `.cursor/rules/` or `.cursorrules`).
+## 11. Security & Best Practices
 
-### Copilot Rules
-- None found (no `.github/copilot-instructions.md`).
+- **Input Sanitization**: Trim/validate all user inputs
+- **XSS Prevention**: Use `textContent` not `innerHTML` with user data
+- **No Secrets**: Never hardcode API keys; use user input or storage
+- **PWA**: Service Worker handles offline caching
 
-### Version Control
-- **Git Handling**: Agents must NEVER commit, push, or perform git operations. The user handles all version control. Agents should only make code changes; do not use git commands.
+## 12. Version Control
+
+- Agents must NEVER commit, push, or perform git operations
+- Only make code changes; user handles all version control
 
 ## Code Review Checklist
 
 Before submitting any code changes, verify:
 
-### JSDoc Requirements
 - [ ] Every function has JSDoc with @param, @returns
 - [ ] Every function that throws has @throws
-- [ ] Every inline array/object has @type comment
-- [ ] All complex types use @typedef or inline property definitions
+- [ ] Every inline array `[]` has @type comment
+- [ ] Every inline object `{}` has @type comment
+- [ ] No single-letter variable names (except trivial loop counters)
+- [ ] No abbreviations in names
+- [ ] Functions under 100 lines
+- [ ] All HTML IDs use kebab-case
 
-### Naming Requirements
-- [ ] No single-letter variables except trivial loop counters
-- [ ] No abbreviated names (tsStart, hasAssig, isConstr)
-- [ ] Boolean flags use is/has/can prefix
-- [ ] Function names use verb-noun descriptive pattern
-
-### Function Size Requirements
-- [ ] No function exceeds 100 lines (excluding comments)
-- [ ] Each function has single, clear responsibility
-- [ ] Complex logic extracted into helper functions
-
-### Code Clarity Requirements
-- [ ] Variable names are self-documenting
-- [ ] No magic numbers or unexplained values
-- [ ] Logic sections are clearly separated
-- [ ] Early returns used to reduce nesting
-
-By following these guidelines, agents maintain a clean, maintainable codebase. If rules evolve, update this file.
+By following these guidelines, agents maintain a clean, maintainable, and well-documented codebase.

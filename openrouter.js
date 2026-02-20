@@ -3,6 +3,7 @@
  * Handles communication with OpenRouter for models, balance, and image generation
  */
 
+/** @type {string} */
 var OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 /**
@@ -81,6 +82,7 @@ function fetchBalance(apiKey) {
  * @throws {Error} If API request fails
  */
 function generateImage(apiKey, prompt, model, systemPrompt, conversationHistory, imageConfig) {
+    /** @type {Array<{role: string, content: string}>} */
     var messages = [];
 
     if (systemPrompt) {
@@ -104,6 +106,7 @@ function generateImage(apiKey, prompt, model, systemPrompt, conversationHistory,
         content: prompt
     });
 
+    /** @type {Object} */
     var body = {
         model: model,
         messages: messages,
@@ -111,6 +114,7 @@ function generateImage(apiKey, prompt, model, systemPrompt, conversationHistory,
     };
 
     if (imageConfig) {
+        /** @type {Object} */
         var imageConfigObj = {};
         if (imageConfig.imageSize) {
             imageConfigObj.image_size = imageConfig.imageSize;
