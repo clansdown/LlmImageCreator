@@ -4,6 +4,12 @@
  */
 
 /**
+ * @typedef {Object} Conversation
+ * @property {number} timestamp - Epoch timestamp of conversation creation
+ * @property {Array<Object>} entries - Array of conversation turns
+ */
+
+/**
  * Populates the model dropdown with available image generation models
  * @param {Array<Object>} models - Array of model objects
  */
@@ -422,4 +428,64 @@ function displayWarning(message) {
             conversationArea.appendChild(warningDisplay);
         }
     }
+}
+
+/**
+ * Renders a complete conversation in the conversation area
+ * @param {Conversation} conversation - Conversation object with entries
+ * @returns {void}
+ */
+function renderConversation(conversation) {
+    var conversationArea = document.getElementById("conversation-area");
+    if (!conversationArea) return;
+
+    conversationArea.innerHTML = "";
+
+    if (!conversation || !conversation.entries) return;
+
+    conversation.entries.forEach(function(entry) {
+        var userDiv = document.createElement("div");
+        userDiv.className = "user-message mb-3 p-3 bg-primary text-white rounded";
+        userDiv.textContent = entry.message.text;
+        conversationArea.appendChild(userDiv);
+
+        var assistantDiv = document.createElement("div");
+        assistantDiv.className = "assistant-message mb-3 p-3 bg-light rounded";
+
+        var assistantLabel = document.createElement("div");
+        assistantLabel.className = "text-muted small mb-1";
+        assistantLabel.textContent = "Assistant";
+        assistantDiv.appendChild(assistantLabel);
+
+        if (entry.response.text) {
+            var contentDiv = document.createElement("div");
+            contentDiv.className = "mb-2";
+            contentDiv.textContent = entry.response.text;
+            assistantDiv.appendChild(contentDiv);
+        }
+
+        if (entry.response.imageFilenames && entry.response.imageFilenames.length > 0) {
+            entry.response.imageFilenames.forEach(function(filename, index) {
+                var imageIndex = parseInt(filename, 10);
+                getImage(conversation.timestamp, imageIndex).then(function(blob) {
+                    if (!blob) return;
+                    var imgElement = document.createElement("img");
+                    var objectUrl = URL.createObjectURL(blob);
+                    imgElement.onload = function() {
+                        URL.revokeObjectURL(objectUrl);
+                    };
+                    imgElement.src = objectUrl;
+                    imgElement.className = "img-fluid mb-2";
+                    imgElement.alt = "Generated image " + (index + 1);
+                    imgElement.style.maxWidth = "100%";
+                    imgElement.style.height = "auto";
+                    assistantDiv.appendChild(imgElement);
+                });
+            });
+        }
+
+        conversationArea.appendChild(assistantDiv);
+    });
+
+    conversationArea.scrollTop = conversationArea.scrollHeight;
 }

@@ -78,10 +78,11 @@ function fetchBalance(apiKey) {
  * @param {Object} imageConfig - Image configuration options
  * @param {string} imageConfig.imageSize - Image size (1K, 2K, 4K)
  * @param {string} imageConfig.aspectRatio - Aspect ratio (1:1, 16:9, 3:2, 21:9)
+ * @param {number} [seed] - Seed for reproducible generation
  * @returns {Promise<Object>} Chat completion response with images
  * @throws {Error} If API request fails
  */
-function generateImage(apiKey, prompt, model, systemPrompt, conversationHistory, imageConfig) {
+function generateImage(apiKey, prompt, model, systemPrompt, conversationHistory, imageConfig, seed) {
     /** @type {Array<{role: string, content: string}>} */
     var messages = [];
 
@@ -127,6 +128,10 @@ function generateImage(apiKey, prompt, model, systemPrompt, conversationHistory,
         }
     }
 
+    if (typeof seed !== "undefined" && seed !== null) {
+        body.seed = seed;
+    }
+
     return fetch(OPENROUTER_BASE_URL + "/chat/completions", {
         method: "POST",
         headers: {
@@ -139,6 +144,28 @@ function generateImage(apiKey, prompt, model, systemPrompt, conversationHistory,
             return response.text().then(function(text) {
                 throw new Error("Failed to generate image: " + response.status + " - " + text);
             });
+        }
+        return response.json();
+    });
+}
+
+/**
+ * Queries generation information from OpenRouter
+ * @param {string} apiKey - OpenRouter API key
+ * @param {string} generationId - Generation ID from chat completion response
+ * @returns {Promise<Object>} Generation info with usage and cost
+ * @throws {Error} If API request fails
+ */
+function getGenerationInfo(apiKey, generationId) {
+    return fetch(OPENROUTER_BASE_URL + "/generation?id=" + generationId, {
+        method: "GET",
+        headers: {
+            "Authorization": "Bearer " + apiKey,
+            "Content-Type": "application/json"
+        }
+    }).then(function(response) {
+        if (!response.ok) {
+            throw new Error("Failed to fetch generation info: " + response.status);
         }
         return response.json();
     });

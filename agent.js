@@ -3,8 +3,38 @@
  * Handles initialization and user interaction flow
  */
 
+/**
+ * @typedef {Object} ConversationMessage
+ * @property {string} systemPrompt - System prompt used for generation
+ * @property {string} text - User's prompt text
+ * @property {number|null} seed - Seed value used in request for reproducibility
+ */
+
+/**
+ * @typedef {Object} ConversationResponse
+ * @property {string|null} text - Any text content returned from generation
+ * @property {Array<string>} imageFilenames - Filenames of generated images (e.g., ["1.png", "2.png"])
+ * @property {Object} responseData - API response data (excludes binary image data)
+ * @property {Object} generationData - Usage and cost information from generation query
+ */
+
+/**
+ * @typedef {Object} ConversationEntry
+ * @property {ConversationMessage} message - Input message with system prompt, text, and seed
+ * @property {ConversationResponse} response - Response with text, images, and metadata
+ */
+
+/**
+ * @typedef {Object} Conversation
+ * @property {number} timestamp - Epoch timestamp of conversation creation
+ * @property {ConversationEntry[]} entries - Array of conversation turns
+ */
+
 /** @type {string | null} */
 var selectedModel = null;
+
+/** @type {Conversation | null} */
+var currentConversation = null;
 
 /** @type {Array<{role: string, content: string}>} */
 var conversationHistory = [];
@@ -245,13 +275,114 @@ function handleApiKeyEntry() {
 }
 
 /**
+ * Generates a random 32-bit signed integer for reproducible generation
+ * @returns {number} Random integer in range -2147483648 to 2147483647
+ */
+function generateRandomSeed() {
+    return Math.floor(Math.random() * 0x7FFFFFFF);
+}
+
+/**
+ * Extracts image URLs from chat completion response
+ * @param {Object} response - OpenRouter chat completion response
+ * @returns {Array<string>} Array of image URLs
+ */
+function extractImageUrls(response) {
+    var urls = [];
+    if (response.choices && response.choices.length > 0) {
+        var message = response.choices[0].message;
+        if (message.images && message.images.length > 0) {
+            message.images.forEach(function(imgObj) {
+                if (imgObj.image_url && imgObj.image_url.url) {
+                    urls.push(imgObj.image_url.url);
+                }
+            });
+        }
+    }
+    return urls;
+}
+
+/**
+ * Saves images from response to conversation directory
+ * @param {number} timestamp - Conversation timestamp
+ * @param {Object} response - OpenRouter chat completion response
+ * @returns {Promise<Array<string>>} Array of image filenames
+ */
+async function saveImagesToConversation(timestamp, response) {
+    var urls = extractImageUrls(response);
+    var filenames = [];
+    for (var i = 0; i < urls.length; i++) {
+        var index = await saveImage(timestamp, urls[i]);
+        if (index !== null) {
+            filenames.push(String(index));
+        }
+    }
+    return filenames;
+}
+
+/**
+ * Creates a conversation entry from generation response
+ * @param {string} prompt - User prompt text
+ * @param {number} seed - Generation seed
+ * @param {Object} response - OpenRouter chat completion response
+ * @param {Array<string>} imageFilenames - Saved image filenames
+ * @returns {ConversationEntry} Created conversation entry
+ */
+function createConversationEntry(prompt, seed, response, imageFilenames) {
+    var message = response.choices[0].message;
+    var entry = {
+        message: {
+            systemPrompt: SYSTEM_PROMPT,
+            text: prompt,
+            seed: seed
+        },
+        response: {
+            text: message.content || null,
+            imageFilenames: imageFilenames,
+            responseData: response,
+            generationData: null
+        }
+    };
+    return entry;
+}
+
+/**
+ * Polls generation info endpoint with retry logic
+ * @param {string} apiKey - OpenRouter API key
+ * @param {string} generationId - Generation ID from response
+ * @param {number} [maxRetries=5] - Maximum retry attempts
+ * @returns {Promise<Object|null>} Generation data or null on failure
+ */
+async function fetchGenerationDataWithRetry(apiKey, generationId, maxRetries) {
+    if (typeof maxRetries === "undefined") {
+        maxRetries = 5;
+    }
+    for (var attempt = 0; attempt < maxRetries; attempt++) {
+        await new Promise(function(resolve) {
+            setTimeout(resolve, 200);
+        });
+        try {
+            var generationInfo = await getGenerationInfo(apiKey, generationId);
+            if (generationInfo) {
+                return generationInfo;
+            }
+        } catch (e) {
+            if (attempt === maxRetries - 1) {
+                return null;
+            }
+        }
+    }
+    return null;
+}
+
+/**
  * Handles the generate button click - initiates image generation
  */
 function handleGenerate() {
     if (isGenerating) return;
 
     if (!isOnline()) {
-        displayError('Network unavailable. Please check your connection.');
+        displayError("Network unavailable. Please check your connection.");
         return;
     }
 
@@ -275,55 +406,79 @@ function handleGenerate() {
     isGenerating = true;
     setLoadingState(true);
 
-    var resolution = getResolution();
-    var aspectRatio = getAspectRatio();
-    /** @type {{imageSize: string, aspectRatio: string}} */
-    var imageConfig = {
-        imageSize: resolution,
-        aspectRatio: aspectRatio
-    };
+    var seed = generateRandomSeed();
+    var timestamp = Math.floor(Date.now() / 1000);
 
-    conversationHistory.push({
-        role: "user",
-        content: prompt
-    });
+    if (!currentConversation) {
+        currentConversation = {
+            timestamp: timestamp,
+            entries: []
+        };
+    }
 
-    addToConversationHistory("user", prompt);
+    createConversation(currentConversation.timestamp).then(function() {
+        var resolution = getResolution();
+        var aspectRatio = getAspectRatio();
+        /** @type {{imageSize: string, aspectRatio: string}} */
+        var imageConfig = {
+            imageSize: resolution,
+            aspectRatio: aspectRatio
+        };
 
-    generateImage(apiKey, prompt, selectedModel, SYSTEM_PROMPT, conversationHistory, imageConfig)
-        .then(function(response) {
-            if (response.choices && response.choices.length > 0) {
-                var message = response.choices[0].message;
-                var responseText = message.content || "Image generated";
-                var images = message.images || [];
-
-                conversationHistory.push({
-                    role: "assistant",
-                    content: responseText
-                });
-
-                addToConversationHistory("assistant", responseText, images);
-                displayImageResponse(response);
-                clearUserInput();
-            }
-        })
-        .catch(function(error) {
-            console.error("Error generating image:", error);
-            displayError(error.message);
-        })
-        .finally(function() {
-            fetchBalance(apiKey)
-                .then(function(balance) {
-                    updateBalanceDisplay(balance);
-                })
-                .catch(function(error) {
-                    console.error("Error fetching balance:", error);
-                    updateBalanceDisplay(null, "Balance unavailable - check API key permissions");
-                });
-
-            isGenerating = false;
-            setLoadingState(false);
+        conversationHistory.push({
+            role: "user",
+            content: prompt
         });
+
+        addToConversationHistory("user", prompt);
+
+        return generateImage(apiKey, prompt, selectedModel, SYSTEM_PROMPT, conversationHistory, imageConfig, seed);
+    }).then(function(response) {
+        if (response.choices && response.choices.length > 0) {
+            var message = response.choices[0].message;
+            var responseText = message.content || "Image generated";
+            var images = message.images || [];
+
+            conversationHistory.push({
+                role: "assistant",
+                content: responseText
+            });
+
+            addToConversationHistory("assistant", responseText, images);
+            displayImageResponse(response);
+
+            return saveImagesToConversation(currentConversation.timestamp, response).then(function(imageFilenames) {
+                var entry = createConversationEntry(prompt, seed, response, imageFilenames);
+                currentConversation.entries.push(entry);
+
+                return saveConversation(currentConversation.timestamp, currentConversation).then(function() {
+                    var generationId = response.id;
+                    fetchGenerationDataWithRetry(apiKey, generationId, 5).then(function(generationData) {
+                        if (generationData) {
+                            entry.response.generationData = generationData;
+                            saveConversation(currentConversation.timestamp, currentConversation);
+                        }
+                    });
+
+                    renderConversation(currentConversation);
+                    clearUserInput();
+                });
+            });
+        }
+    }).catch(function(error) {
+        console.error("Error generating image:", error);
+        displayError(error.message);
+    }).finally(function() {
+        fetchBalance(apiKey).then(function(balance) {
+            updateBalanceDisplay(balance);
+        }).catch(function(error) {
+            console.error("Error fetching balance:", error);
+            updateBalanceDisplay(null, "Balance unavailable - check API key permissions");
+        });
+
+        isGenerating = false;
+        setLoadingState(false);
+    });
 }
 
 if (document.readyState === "loading") {
