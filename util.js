@@ -4,6 +4,15 @@
  */
 
 /**
+ * @typedef {Object} ConversationSummary
+ * @property {string} title - Conversation title
+ * @property {number} imageCount - Total images across all conversation entries
+ * @property {number} entryCount - Number of conversation turns
+ * @property {number} created - Conversation creation timestamp (epoch seconds)
+ * @property {number} updated - Last update timestamp (epoch seconds)
+ */
+
+/**
  * Gets the API key from the input field
  * @returns {string} API key value
  */

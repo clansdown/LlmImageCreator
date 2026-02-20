@@ -13,11 +13,21 @@
  * └── conversations/
  *     └── {timestamp}/         (epoch seconds, e.g., 1737991234)
  *         ├── conversation.json
+ *         ├── summary.json
  *         └── images/
  *             ├── 1.png
  *             ├── 2.png
  *             ├── 3.png
  *             └── ... (sequential numbering for all images in conversation)
+ */
+
+/**
+ * @typedef {Object} ConversationSummary
+ * @property {string} title - Conversation title
+ * @property {number} imageCount - Total images across all conversation entries
+ * @property {number} entryCount - Number of conversation turns
+ * @property {number} created - Conversation creation timestamp (epoch seconds)
+ * @property {number} updated - Last update timestamp (epoch seconds)
  */
 
 /** @type {string} */
@@ -368,7 +378,7 @@ async function deleteImagesForConversation(timestamp) {
 /**
  * Saves or updates summary.json for a conversation
  * @param {number} timestamp - Conversation timestamp
- * @param {Object} summaryData - Summary data object
+ * @param {ConversationSummary} summaryData - Summary data object
  * @returns {Promise<void>}
  */
 async function saveSummary(timestamp, summaryData) {
@@ -388,7 +398,7 @@ async function saveSummary(timestamp, summaryData) {
 /**
  * Loads summary.json for a conversation
  * @param {number} timestamp - Conversation timestamp
- * @returns {Promise<Object|null>} Summary data or null
+ * @returns {Promise<ConversationSummary|null>} Summary data or null
  */
 async function loadSummary(timestamp) {
     try {

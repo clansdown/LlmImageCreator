@@ -321,33 +321,56 @@ function createConversationItem(timestamp, conversation) {
     var dateStr = date.toLocaleDateString() + " " + date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
     
     loadSummary(timestamp).then(function(summary) {
-        var title = summary && summary.title ? summary.title : "New Conversation";
-        clone.querySelector(".conversation-date").textContent = title;
-        clone.querySelector(".conversation-preview").textContent = dateStr + " (" + conversation.entries.length + " messages)";
+        /** @type {ConversationSummary} */
+        var summaryTyped = summary || { title: "New Conversation", imageCount: 0, entryCount: 0, created: timestamp, updated: timestamp };
+        var title = summaryTyped && summaryTyped.title ? summaryTyped.title : "New Conversation";
+        var dateElement = clone.querySelector("#conversation-date");
+        var previewElement = clone.querySelector("#conversation-preview");
+        if (dateElement) dateElement.textContent = title;
+        if (previewElement) previewElement.textContent = dateStr + " (" + conversation.entries.length + " messages)";
         
-        if (summary && title !== "New Conversation" && title && title.trim().length > 0) {
+        if (summaryTyped && title !== "New Conversation" && title && title.trim().length > 0) {
+            console.log("Conversation", timestamp, "has existing title:", title);
             return;
         }
+        
+        console.log("Conversation", timestamp, "needs title generation. Current title:", title);
         
         if (conversation.entries && conversation.entries.length > 0) {
             var firstPrompt = conversation.entries[0].message.text;
             if (firstPrompt) {
+                console.log("Generating title for conversation", timestamp, "with prompt:", firstPrompt.substring(0, 50));
                 generateConversationTitle(firstPrompt).then(function(newTitle) {
                     if (newTitle && newTitle.trim().length > 0) {
+                        console.log("Title generated for conversation", timestamp, ":", newTitle);
                         updateConversationSummary(timestamp, newTitle).then(function(summaryData) {
+                            console.log("Summary updated for conversation", timestamp, "with title:", summaryData.title);
                             updateConversationListItemTitle(timestamp, summaryData.title);
                         }).catch(function(e) {
-                            console.error("Error saving new title:", e);
+                            console.error("Error saving new title for conversation", timestamp, ":", e);
                         });
+                    } else {
+                        console.log("Generated title was empty or invalid for conversation", timestamp);
                     }
                 }).catch(function(e) {
-                    console.error("Error generating title for existing conversation:", e);
+                    console.error("Error generating title for conversation", timestamp, ":", e);
                 });
+            } else {
+                console.log("Conversation", timestamp, "has no prompt text to generate title from");
             }
+        } else {
+            console.log("Conversation", timestamp, "has no entries, skipping title generation");
         }
-    }).catch(function() {
-        clone.querySelector(".conversation-date").textContent = "New Conversation";
-        clone.querySelector(".conversation-preview").textContent = dateStr + " (" + conversation.entries.length + " messages)";
+    }).catch(function(e) {
+        console.error("Failed to load summary for conversation", timestamp, e);
+        var dateElement = clone.querySelector("#conversation-date");
+        var previewElement = clone.querySelector("#conversation-preview");
+        if (dateElement) {
+            dateElement.textContent = "New Conversation";
+        }
+        if (previewElement) {
+            previewElement.textContent = dateStr + " (" + conversation.entries.length + " messages)";
+        }
     });
 
     item.addEventListener("click", function() {

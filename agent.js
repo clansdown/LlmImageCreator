@@ -392,6 +392,7 @@ async function fetchGenerationDataWithRetry(apiKey, generationId, maxRetries) {
  * @returns {Promise<void>}
  */
 async function initializeConversationSummary(timestamp) {
+    /** @type {ConversationSummary} */
     var summaryData = {
         title: "New Conversation",
         imageCount: 0,
@@ -406,13 +407,20 @@ async function initializeConversationSummary(timestamp) {
  * Updates the conversation summary with current stats and optional new title
  * @param {number} timestamp - Conversation timestamp
  * @param {string} [title] - Optional new title
- * @returns {Promise<Object>} Updated summary data
+ * @returns {Promise<ConversationSummary>} Updated summary data
  */
 async function updateConversationSummary(timestamp, title) {
     var conversation = await loadConversation(timestamp);
     if (!conversation) return null;
     
-    var summary = await loadSummary(timestamp) || { title: "New Conversation" };
+    /** @type {ConversationSummary} */
+    var summary = await loadSummary(timestamp) || {
+        title: "New Conversation",
+        imageCount: 0,
+        entryCount: 0,
+        created: timestamp,
+        updated: timestamp
+    };
     var imageCount = 0;
     conversation.entries.forEach(function(entry) {
         if (entry.response.imageFilenames) {
@@ -420,6 +428,7 @@ async function updateConversationSummary(timestamp, title) {
         }
     });
     
+    /** @type {ConversationSummary} */
     var summaryData = {
         title: title || summary.title,
         imageCount: imageCount,
