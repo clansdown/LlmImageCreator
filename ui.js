@@ -282,6 +282,141 @@ function clearConversationHistory() {
 }
 
 /**
+ * Populates the conversation list in the left sidebar with saved conversations
+ * @param {Array<number>} timestamps - Array of conversation timestamps
+ * @returns {Promise<void>}
+ */
+async function populateConversationList(timestamps) {
+    var historyContainer = document.getElementById("conversation-history");
+    if (!historyContainer) return;
+
+    clearConversationHistory();
+
+    if (!timestamps || timestamps.length === 0) {
+        var emptyDiv = document.createElement("div");
+        emptyDiv.className = "small text-muted";
+        emptyDiv.textContent = "No saved conversations";
+        historyContainer.appendChild(emptyDiv);
+        return;
+    }
+
+    for (var i = 0; i < timestamps.length; i++) {
+        var timestamp = timestamps[i];
+        var conversation = await loadConversation(timestamp);
+        if (conversation && conversation.entries && conversation.entries.length > 0) {
+            createConversationItem(timestamp, conversation);
+        }
+    }
+}
+
+/**
+ * Creates a conversation item in the sidebar from template
+ * @param {number} timestamp - Conversation timestamp
+ * @param {Conversation} conversation - Conversation object
+ * @returns {void}
+ */
+function createConversationItem(timestamp, conversation) {
+    var historyContainer = document.getElementById("conversation-history");
+    if (!historyContainer) return;
+
+    var template = document.getElementById("conversation-item-template");
+    if (!template) return;
+
+    var clone = template.content.cloneNode(true);
+    var item = clone.querySelector(".conversation-item");
+
+    var date = new Date(timestamp * 1000);
+    var dateStr = date.toLocaleDateString() + " " + date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+    clone.querySelector(".conversation-date").textContent = dateStr;
+
+    var previewText = conversation.entries[0].message.text;
+    if (previewText.length > 50) {
+        previewText = previewText.substring(0, 50) + "...";
+    }
+    clone.querySelector(".conversation-preview").textContent = previewText + " (" + conversation.entries.length + " messages)";
+
+    item.dataset.timestamp = timestamp;
+    item.addEventListener("click", function() {
+        loadConversationIntoView(timestamp);
+    });
+
+    historyContainer.appendChild(clone);
+}
+
+/**
+ * Loads a conversation into the main view
+ * @param {number} timestamp - Conversation timestamp
+ * @returns {Promise<void>}
+ */
+async function loadConversationIntoView(timestamp) {
+    var conversation = await loadConversation(timestamp);
+    if (!conversation) return;
+
+    currentConversation = conversation;
+    conversationHistory = [];
+
+    if (conversation.entries) {
+        conversation.entries.forEach(function(entry) {
+            conversationHistory.push({
+                role: "user",
+                content: entry.message.text
+            });
+
+            if (entry.response.text) {
+                conversationHistory.push({
+                    role: "assistant",
+                    content: entry.response.text
+                });
+            }
+        });
+    }
+
+    clearConversationArea();
+    renderConversation(conversation);
+
+    var historyContainer = document.getElementById("conversation-history");
+    if (historyContainer) {
+        var items = historyContainer.querySelectorAll(".conversation-item");
+        items.forEach(function(item) {
+            item.classList.remove("selected");
+            if (parseInt(item.dataset.timestamp, 10) === timestamp) {
+                item.classList.add("selected");
+            }
+        });
+    }
+}
+
+/**
+ * Starts a new conversation by clearing current view for clean slate
+ * @returns {Promise<void>}
+ */
+async function handleNewConversation() {
+    currentConversation = null;
+    conversationHistory = [];
+    clearConversationArea();
+    clearUserInput();
+
+    var historyContainer = document.getElementById("conversation-history");
+    if (historyContainer) {
+        var selectedItems = historyContainer.querySelectorAll(".selected");
+        selectedItems.forEach(function(item) {
+            item.classList.remove("selected");
+        });
+    }
+}
+
+/**
+ * Initializes Bootstrap tooltips for all elements with data-bs-toggle="tooltip"
+ * @returns {void}
+ */
+function initTooltips() {
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll("[data-bs-toggle=\"tooltip\"]"));
+    tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+}
+
+/**
  * Clears the conversation area in the right column
  */
 function clearConversationArea() {

@@ -106,9 +106,15 @@ function isOnline() {
 function init() {
     setupEventListeners();
     loadPreferencesAndInitialize();
-    
+
+    listConversations().then(function(timestamps) {
+        populateConversationList(timestamps);
+    });
+
+    initTooltips();
+
     if (!navigator.onLine) {
-        displayWarning('Network unavailable. Some features may not work offline.');
+        displayWarning("Network unavailable. Some features may not work offline.");
     }
 }
 
@@ -153,6 +159,11 @@ function setupEventListeners() {
     var generateButton = document.getElementById("generate-button");
     if (generateButton) {
         generateButton.addEventListener("click", handleGenerate);
+    }
+
+    var newConversationBtn = document.getElementById("new-conversation-btn");
+    if (newConversationBtn) {
+        newConversationBtn.addEventListener("click", handleNewConversation);
     }
 
     setupDropdownEventListeners();
