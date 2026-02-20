@@ -6,6 +6,54 @@
 var selectedModel = null;
 var conversationHistory = [];
 var isGenerating = false;
+var deferredPrompt = null;
+
+window.addEventListener('beforeinstallprompt', function(e) {
+    e.preventDefault();
+    deferredPrompt = e;
+    var installBtn = document.getElementById('install-btn');
+    if (installBtn) {
+        installBtn.style.display = 'inline-block';
+    }
+});
+
+window.addEventListener('appinstalled', function() {
+    var installBtn = document.getElementById('install-btn');
+    if (installBtn) {
+        installBtn.style.display = 'none';
+    }
+    deferredPrompt = null;
+});
+
+var installBtn = document.getElementById('install-btn');
+if (installBtn) {
+    installBtn.addEventListener('click', function() {
+        if (deferredPrompt) {
+            deferredPrompt.prompt();
+            deferredPrompt.userChoice.then(function(choiceResult) {
+                if (choiceResult.outcome === 'accepted') {
+                    console.log('User accepted install');
+                }
+                deferredPrompt = null;
+                var btn = document.getElementById('install-btn');
+                if (btn) btn.style.display = 'none';
+            });
+        }
+    });
+}
+
+window.addEventListener('online', handleOnlineStatusChange);
+window.addEventListener('offline', handleOnlineStatusChange);
+
+function handleOnlineStatusChange() {
+    if (!navigator.onLine) {
+        displayWarning('Network unavailable. Some features may not work offline.');
+    }
+}
+
+function isOnline() {
+    return navigator.onLine;
+}
 
 /**
  * Initializes the application
@@ -14,6 +62,10 @@ var isGenerating = false;
 function init() {
     setupEventListeners();
     loadPreferencesAndInitialize();
+    
+    if (!navigator.onLine) {
+        displayWarning('Network unavailable. Some features may not work offline.');
+    }
 }
 
 function setupEventListeners() {
@@ -116,6 +168,11 @@ async function loadPreferencesAndInitialize() {
 function handleApiKeyEntry() {
     var apiKey = getApiKey();
 
+    if (!isOnline()) {
+        displayError('Network unavailable. Please check your connection.');
+        return;
+    }
+
     if (apiKey && apiKey.length > 0) {
         savePreference("apiKey", apiKey);
 
@@ -159,6 +216,11 @@ function handleApiKeyEntry() {
 
 function handleGenerate() {
     if (isGenerating) return;
+
+    if (!isOnline()) {
+        displayError('Network unavailable. Please check your connection.');
+        return;
+    }
 
     var apiKey = getApiKey();
     if (!apiKey || apiKey.length === 0) {

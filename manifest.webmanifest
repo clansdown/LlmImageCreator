@@ -1,0 +1,24 @@
+{
+    "name": "LlmImageCreator",
+    "short_name": "ImgCreator",
+    "description": "Generate images using OpenRouter AI models",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#212529",
+    "theme_color": "#343a40",
+    "scope": "/",
+    "icons": [
+        {
+            "src": "https://via.placeholder.com/192/343a40/ffffff?text=IMG",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "https://via.placeholder.com/512/343a40/ffffff?text=IMG",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ]
+}
