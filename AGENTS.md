@@ -70,23 +70,29 @@ let conversationHistory = [];
 
 ## 4. File Structure & Dependencies
 
-### Script Loading Order (in index.html)
-```
-openrouter.js  →  prompt.js  →  storage.js  →  ui.js  →  agent.js
-```
+### Module Loading (in index.html)
+ES Modules loaded via `<script type="module" src="main.js"></script>`
+main.js imports agent.js which then imports all other modules
 
 ### File Purposes
 - `index.html`: Main HTML with Bootstrap 5, inline styles, script loading
+- `main.js`: Application entry point, imports agent.js and calls init()
+- `state.js`: Centralized state object (selectedModel, currentConversation, conversationHistory, isGenerating, deferredPrompt)
 - `openrouter.js`: OpenRouter API calls (fetchModels, fetchBalance, generateImage)
-- `prompt.js`: System prompt constant
+- `prompt.js`: System prompt constants
 - `storage.js`: OPFS storage (preferences, conversations, images)
 - `ui.js`: DOM manipulation and UI updates
+- `util.js`: Utility functions (generateRandomSeed, generateConversationTitle, getApiKey)
 - `agent.js`: Main orchestration and event handling
-- `sw.js`: Service Worker for offline support
+- `sw.js`: Service Worker for offline support (non-module)
 
-### Dependencies
+### Module Dependencies
 - Bootstrap 5 via CDN (CSS in `<head>`, JS before `</body>`)
-- No ES6 imports - use vanilla JS with `<script src="...">` tags
+- All JS files use ES6 modules with `import`/`export`
+- State managed in state.js, imported by ui.js and agent.js
+
+### Import Chain
+main.js → agent.js → (prompt.js, openrouter.js, storage.js, state.js, ui.js, util.js)
 
 ## 5. Code Formatting
 

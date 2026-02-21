@@ -3,6 +3,14 @@
  * Handles all DOM updates and user interface interactions
  */
 
+import { STATE } from './state.js';
+import { SYSTEM_PROMPT } from './prompt.js';
+import { savePreference, getPreference, createConversation, loadConversation, saveConversation, deletePreference, deleteImagesForConversation, getImage, saveImage, loadSummary, listConversations } from './storage.js';
+import { generateRandomSeed, generateConversationTitle, getApiKey, updateConversationSummary } from './util.js';
+import { generateImage } from './openrouter.js';
+
+export { getApiKey, updateConversationSummary };
+
 /**
  * @typedef {Object} Conversation
  * @property {number} timestamp - Epoch timestamp of conversation creation
@@ -10,10 +18,19 @@
  */
 
 /**
+ * @typedef {Object} ConversationSummary
+ * @property {string} title - Conversation title
+ * @property {number} imageCount - Total images across all conversation entries
+ * @property {number} entryCount - Number of conversation turns
+ * @property {number} created - Conversation creation timestamp (epoch seconds)
+ * @property {number} updated - Last update timestamp (epoch seconds)
+ */
+
+/**
  * Populates the model dropdown with available image generation models
  * @param {Array<Object>} models - Array of model objects
  */
-function populateModelDropdown(models) {
+export function populateModelDropdown(models) {
     const dropdown = document.getElementById("model-dropdown");
     if (!dropdown) return;
 
@@ -44,7 +61,7 @@ function populateModelDropdown(models) {
             const caret = document.createElement("span");
             caret.className = "caret";
             dropdown.appendChild(caret);
-            selectedModel = model.id;
+            STATE.selectedModel = model.id;
             savePreference("selectedModel", model.id);
         });
 
@@ -57,13 +74,13 @@ function populateModelDropdown(models) {
     const caret = document.createElement("span");
     caret.className = "caret";
     dropdown.appendChild(caret);
-    selectedModel = firstModel.id;
+    STATE.selectedModel = firstModel.id;
 }
 
 /**
  * Clears the model dropdown
  */
-function clearModelDropdown() {
+export function clearModelDropdown() {
     const dropdown = document.getElementById("model-dropdown");
     if (!dropdown) return;
 
@@ -82,7 +99,7 @@ function clearModelDropdown() {
     caret.className = "caret";
     dropdown.appendChild(caret);
 
-    selectedModel = null;
+    STATE.selectedModel = null;
 }
 
 /**
@@ -90,7 +107,7 @@ function clearModelDropdown() {
  * @param {Object|null} balance - Object with totalCredits and totalUsage, or null
  * @param {string|null} warning - Optional warning message
  */
-function updateBalanceDisplay(balance, warning) {
+export function updateBalanceDisplay(balance, warning) {
     const balanceElement = document.getElementById("balance-display");
     if (!balanceElement) return;
 
@@ -114,7 +131,7 @@ function updateBalanceDisplay(balance, warning) {
 /**
  * Toggles the left column visibility
  */
-function toggleLeftColumn() {
+export function toggleLeftColumn() {
     const leftColumn = document.getElementById("left-column");
     const rightColumn = document.getElementById("right-column");
     const toggleBtn = document.getElementById("toggle-sidebar-btn");
@@ -140,42 +157,18 @@ function toggleLeftColumn() {
  * Sets the generate button state based on input content
  * @param {boolean} enabled - Whether the button should be enabled
  */
-function setGenerateButtonState(enabled) {
+export function setGenerateButtonState(enabled) {
     const button = document.getElementById("generate-button");
     if (!button) return;
 
     button.disabled = !enabled;
 }
 
-function getResolution() {
-    const dropdown = document.getElementById("resolution-dropdown");
-    if (!dropdown) return "1K";
-    return dropdown.textContent.trim();
-}
-
-function getAspectRatio() {
-    const dropdown = document.getElementById("aspect-ratio-dropdown");
-    if (!dropdown) return "1:1";
-    return dropdown.textContent.trim();
-}
-
-function getUserPrompt() {
-    const textarea = document.getElementById("user-input");
-    if (!textarea) return "";
-    return textarea.value.trim();
-}
-
-function clearConversationHistory() {
-    const historyContainer = document.getElementById("conversation-history");
-    if (!historyContainer) return;
-    historyContainer.innerHTML = "";
-}
-
 /**
  * Gets the currently selected resolution
  * @returns {string} Selected resolution (1K, 2K, or 4K)
  */
-function getResolution() {
+export function getResolution() {
     const dropdown = document.getElementById("resolution-dropdown");
     if (!dropdown) return "1K";
     return dropdown.textContent.trim();
@@ -185,7 +178,7 @@ function getResolution() {
  * Gets the currently selected aspect ratio
  * @returns {string} Selected aspect ratio
  */
-function getAspectRatio() {
+export function getAspectRatio() {
     const dropdown = document.getElementById("aspect-ratio-dropdown");
     if (!dropdown) return "1:1";
     return dropdown.textContent.trim();
@@ -195,7 +188,7 @@ function getAspectRatio() {
  * Gets the user's prompt from the textarea
  * @returns {string} User's input prompt
  */
-function getUserPrompt() {
+export function getUserPrompt() {
     const textarea = document.getElementById("user-input");
     if (!textarea) return "";
     return textarea.value.trim();
@@ -204,10 +197,103 @@ function getUserPrompt() {
 /**
  * Clears the conversation history display
  */
-function clearConversationHistory() {
+export function clearConversationHistory() {
     const historyContainer = document.getElementById("conversation-history");
     if (!historyContainer) return;
     historyContainer.innerHTML = "";
+}
+
+/**
+ * Starts a new conversation by clearing current view for clean slate
+ * @returns {Promise<void>}
+ */
+export async function handleNewConversation() {
+    STATE.currentConversation = null;
+    STATE.conversationHistory = [];
+    clearConversationArea();
+    clearUserInput();
+
+    const historyContainer = document.getElementById("conversation-history");
+    if (historyContainer) {
+        const selectedItems = historyContainer.querySelectorAll(".selected");
+        selectedItems.forEach(function(item) {
+            item.classList.remove("selected");
+        });
+    }
+}
+
+/**
+ * Initializes Bootstrap tooltips for all elements with data-bs-toggle="tooltip"
+ * @returns {void}
+ */
+export function initTooltips() {
+    const tooltipTriggerList = [].slice.call(document.querySelectorAll("[data-bs-toggle=\"tooltip\"]"));
+    tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+}
+
+/**
+ * Initializes a Bootstrap tooltip for a single element
+ * @param {HTMLElement} element - Element to initialize tooltip for
+ * @returns {void}
+ */
+export function initTooltipForElement(element) {
+    if (element && element.getAttribute("data-bs-toggle") === "tooltip") {
+        new bootstrap.Tooltip(element);
+    }
+}
+
+/**
+ * Updates the conversation list after adding a new entry
+ * @returns {Promise<void>}
+ */
+export async function updateConversationList() {
+    const timestamps = await listConversations();
+    await populateConversationList(timestamps);
+}
+
+/**
+ * Loads a conversation into the main view
+ * @param {number} timestamp - Conversation timestamp
+ * @returns {Promise<void>}
+ */
+export async function loadConversationIntoView(timestamp) {
+    const conversation = await loadConversation(timestamp);
+    if (!conversation) return;
+
+    STATE.currentConversation = conversation;
+    STATE.conversationHistory = [];
+
+    if (conversation.entries) {
+        conversation.entries.forEach(function(entry) {
+            STATE.conversationHistory.push({
+                role: "user",
+                content: entry.message.text
+            });
+
+            if (entry.response.text) {
+                STATE.conversationHistory.push({
+                    role: "assistant",
+                    content: entry.response.text
+                });
+            }
+        });
+    }
+
+    clearConversationArea();
+    renderConversation(conversation);
+
+    const historyContainer = document.getElementById("conversation-history");
+    if (historyContainer) {
+        const items = historyContainer.querySelectorAll(".conversation-item");
+        items.forEach(function(item) {
+            item.classList.remove("selected");
+            if (parseInt(item.dataset.timestamp, 10) === timestamp) {
+                item.classList.add("selected");
+            }
+        });
+    }
 }
 
 /**
@@ -215,7 +301,7 @@ function clearConversationHistory() {
  * @param {Array<number>} timestamps - Array of conversation timestamps
  * @returns {Promise<void>}
  */
-async function populateConversationList(timestamps) {
+export async function populateConversationList(timestamps) {
     const historyContainer = document.getElementById("conversation-history");
     if (!historyContainer) return;
 
@@ -246,7 +332,7 @@ async function populateConversationList(timestamps) {
  * @param {Conversation} conversation - Conversation object
  * @returns {void}
  */
-function setConversationItemUI(element, summary, timestamp, conversation) {
+export function setConversationItemUI(element, summary, timestamp, conversation) {
     const dateElement = element.querySelector(".conversation-date");
     const previewElement = element.querySelector(".conversation-preview");
     if (!dateElement || !previewElement) {
@@ -270,7 +356,7 @@ function setConversationItemUI(element, summary, timestamp, conversation) {
  * @param {Conversation} conversation - Conversation object
  * @returns {void}
  */
-function createConversationItem(timestamp, conversation) {
+export function createConversationItem(timestamp, conversation) {
     const historyContainer = document.getElementById("conversation-history");
     if (!historyContainer) return;
 
@@ -322,105 +408,11 @@ function createConversationItem(timestamp, conversation) {
 }
 
 /**
- * Loads a conversation into the main view
- * @param {number} timestamp - Conversation timestamp
- * @returns {Promise<void>}
- */
-async function loadConversationIntoView(timestamp) {
-    const conversation = await loadConversation(timestamp);
-    if (!conversation) return;
-
-    currentConversation = conversation;
-    conversationHistory = [];
-
-    if (conversation.entries) {
-        conversation.entries.forEach(function(entry) {
-            conversationHistory.push({
-                role: "user",
-                content: entry.message.text
-            });
-
-            if (entry.response.text) {
-                conversationHistory.push({
-                    role: "assistant",
-                    content: entry.response.text
-                });
-            }
-        });
-    }
-
-    clearConversationArea();
-    renderConversation(conversation);
-
-    const historyContainer = document.getElementById("conversation-history");
-    if (historyContainer) {
-        const items = historyContainer.querySelectorAll(".conversation-item");
-        items.forEach(function(item) {
-            item.classList.remove("selected");
-            if (parseInt(item.dataset.timestamp, 10) === timestamp) {
-                item.classList.add("selected");
-            }
-        });
-    }
-}
-
-/**
- * Starts a new conversation by clearing current view for clean slate
- * @returns {Promise<void>}
- */
-async function handleNewConversation() {
-    currentConversation = null;
-    conversationHistory = [];
-    clearConversationArea();
-    clearUserInput();
-
-    const historyContainer = document.getElementById("conversation-history");
-    if (historyContainer) {
-        const selectedItems = historyContainer.querySelectorAll(".selected");
-        selectedItems.forEach(function(item) {
-            item.classList.remove("selected");
-        });
-    }
-}
-
-/**
- * Initializes Bootstrap tooltips for all elements with data-bs-toggle="tooltip"
- * @returns {void}
- */
-function initTooltips() {
-    const tooltipTriggerList = [].slice.call(document.querySelectorAll("[data-bs-toggle=\"tooltip\"]"));
-    tooltipTriggerList.map(function (tooltipTriggerEl) {
-        return new bootstrap.Tooltip(tooltipTriggerEl);
-    });
-}
-
-/**
- * Initializes a Bootstrap tooltip for a single element
- * @param {HTMLElement} element - Element to initialize tooltip for
- * @returns {void}
- */
-function initTooltipForElement(element) {
-    if (element && element.getAttribute("data-bs-toggle") === "tooltip") {
-        new bootstrap.Tooltip(element);
-    }
-}
-
-/**
- * Updates the conversation list after adding a new entry
- * @returns {Promise<void>}
- */
-async function updateConversationList() {
-    const timestamps = await listConversations();
-    await populateConversationList(timestamps);
-}
-
-/**
  * Updates a single conversation list item's title without full refresh
  * @param {number} timestamp - Conversation timestamp
- * @param {string} newTitle - New title to display
  * @returns {Promise<void>}
  */
-async function updateConversationListItemTitle(timestamp) {
+export async function updateConversationListItemTitle(timestamp) {
     const historyContainer = document.getElementById("conversation-history");
     if (!historyContainer) return;
 
@@ -458,7 +450,7 @@ async function updateConversationListItemTitle(timestamp) {
  * @param {number} timestamp - Conversation timestamp
  * @returns {Promise<void>}
  */
-async function updateConversationListDate(timestamp) {
+export async function updateConversationListDate(timestamp) {
     const conversation = await loadConversation(timestamp);
     if (!conversation) return;
     
@@ -481,7 +473,7 @@ async function updateConversationListDate(timestamp) {
  * @param {number} conversationTimestamp - Conversation timestamp for image loading
  * @returns {void}
  */
-function renderMessageEntry(entry, index, conversationTimestamp) {
+export function renderMessageEntry(entry, index, conversationTimestamp) {
     const conversationArea = document.getElementById("conversation-area");
     if (!conversationArea) return;
 
@@ -525,7 +517,6 @@ function renderMessageEntry(entry, index, conversationTimestamp) {
                     imgElement.dataset.imageIndex = imgIndex;
                     
                     const downloadBtn = imgTemplate.querySelector(".download-btn");
-                    downloadBtn.className = "btn btn-sm btn-outline-light";
                     downloadBtn.dataset.conversationTimestamp = conversationTimestamp;
                     downloadBtn.dataset.entryIndex = index;
                     downloadBtn.dataset.imageIndex = imgIndex;
@@ -550,7 +541,6 @@ function renderMessageEntry(entry, index, conversationTimestamp) {
                     initTooltipForElement(downloadBtn);
                     
                     const regenerateNewBtn = imgTemplate.querySelector(".regenerate-new-btn");
-                    regenerateNewBtn.className = "btn btn-sm btn-outline-light";
                     regenerateNewBtn.dataset.entryIndex = index;
                     regenerateNewBtn.dataset.imageIndex = imgIndex;
                     regenerateNewBtn.addEventListener("click", function() {
@@ -559,7 +549,6 @@ function renderMessageEntry(entry, index, conversationTimestamp) {
                     initTooltipForElement(regenerateNewBtn);
                     
                     const regenerateLargerBtn = imgTemplate.querySelector(".regenerate-larger-btn");
-                    regenerateLargerBtn.className = "btn btn-sm btn-outline-light";
                     regenerateLargerBtn.disabled = (resolution === "4K");
                     regenerateLargerBtn.dataset.entryIndex = index;
                     regenerateLargerBtn.dataset.imageIndex = imgIndex;
@@ -630,13 +619,17 @@ function renderMessageEntry(entry, index, conversationTimestamp) {
 /**
  * Clears the conversation area in the right column
  */
-function clearConversationArea() {
+export function clearConversationArea() {
     const conversationArea = document.getElementById("conversation-area");
     if (!conversationArea) return;
     conversationArea.innerHTML = "";
 }
 
-function clearUserInput() {
+
+/**
+ * Clears the user input textarea
+ */
+export function clearUserInput() {
     const textarea = document.getElementById("user-input");
     if (!textarea) return;
     textarea.value = "";
@@ -644,13 +637,23 @@ function clearUserInput() {
 }
 
 /**
- * Clears the user input textarea
+ * Extracts image URLs from chat completion response
+ * @param {Object} response - OpenRouter chat completion response
+ * @returns {Array<string>} Array of image URLs
  */
-function clearUserInput() {
-    const textarea = document.getElementById("user-input");
-    if (!textarea) return;
-    textarea.value = "";
-    setGenerateButtonState(false);
+export function extractImageUrls(response) {
+    const urls = [];
+    if (response.choices && response.choices.length > 0) {
+        const message = response.choices[0].message;
+        if (message.images && message.images.length > 0) {
+            message.images.forEach(function(imgObj) {
+                if (imgObj.image_url && imgObj.image_url.url) {
+                    urls.push(imgObj.image_url.url);
+                }
+            });
+        }
+    }
+    return urls;
 }
 
 /**
@@ -659,9 +662,9 @@ function clearUserInput() {
  * @param {number} imageIndex - Index of the image within the entry
  * @returns {Promise<void>}
  */
-async function handleRegenerateWithNewSeed(entryIndex, imageIndex) {
-    if (!currentConversation || !currentConversation.entries[entryIndex]) return;
-    const entry = currentConversation.entries[entryIndex];
+export async function handleRegenerateWithNewSeed(entryIndex, imageIndex) {
+    if (!STATE.currentConversation || !STATE.currentConversation.entries[entryIndex]) return;
+    const entry = STATE.currentConversation.entries[entryIndex];
     
     const apiKey = getApiKey();
     if (!apiKey) return;
@@ -679,17 +682,17 @@ async function handleRegenerateWithNewSeed(entryIndex, imageIndex) {
     
     setLoadingState(true);
     
-    generateImage(apiKey, prompt, selectedModel, SYSTEM_PROMPT, conversationHistory, imageConfig, newSeed)
+    generateImage(apiKey, prompt, STATE.selectedModel, SYSTEM_PROMPT, STATE.conversationHistory, imageConfig, newSeed)
         .then(function(response) {
             const urls = extractImageUrls(response);
             if (urls.length === 0) return Promise.resolve();
             
-            return saveImage(currentConversation.timestamp, urls[0]).then(function(newIndex) {
+            return saveImage(STATE.currentConversation.timestamp, urls[0]).then(function(newIndex) {
                 if (newIndex !== null) {
                     entry.response.imageFilenames.push(String(newIndex));
                     entry.response.imageResolutions.push(resolution);
-                    saveConversation(currentConversation.timestamp, currentConversation);
-                    renderConversation(currentConversation);
+                    saveConversation(STATE.currentConversation.timestamp, STATE.currentConversation);
+                    renderConversation(STATE.currentConversation);
                 }
             });
         })
@@ -708,9 +711,9 @@ async function handleRegenerateWithNewSeed(entryIndex, imageIndex) {
  * @param {number} imageIndex - Index of the image within the entry
  * @returns {Promise<void>}
  */
-async function handleRegenerateLarger(entryIndex, imageIndex) {
-    if (!currentConversation || !currentConversation.entries[entryIndex]) return;
-    const entry = currentConversation.entries[entryIndex];
+export async function handleRegenerateLarger(entryIndex, imageIndex) {
+    if (!STATE.currentConversation || !STATE.currentConversation.entries[entryIndex]) return;
+    const entry = STATE.currentConversation.entries[entryIndex];
     if (entry.response.imageResolutions[imageIndex] === "4K") return;
 
     const apiKey = getApiKey();
@@ -728,17 +731,17 @@ async function handleRegenerateLarger(entryIndex, imageIndex) {
 
     setLoadingState(true);
 
-    generateImage(apiKey, prompt, selectedModel, SYSTEM_PROMPT, conversationHistory, imageConfig, seed)
+    generateImage(apiKey, prompt, STATE.selectedModel, SYSTEM_PROMPT, STATE.conversationHistory, imageConfig, seed)
         .then(function(response) {
             const urls = extractImageUrls(response);
             if (urls.length === 0) return Promise.resolve();
 
-            return saveImage(currentConversation.timestamp, urls[0]).then(function(newIndex) {
+            return saveImage(STATE.currentConversation.timestamp, urls[0]).then(function(newIndex) {
                 if (newIndex !== null) {
                     entry.response.imageFilenames.push(String(newIndex));
                     entry.response.imageResolutions.push("4K");
-                    saveConversation(currentConversation.timestamp, currentConversation);
-                    renderConversation(currentConversation);
+                    saveConversation(STATE.currentConversation.timestamp, STATE.currentConversation);
+                    renderConversation(STATE.currentConversation);
                 }
             });
         })
@@ -755,7 +758,7 @@ async function handleRegenerateLarger(entryIndex, imageIndex) {
  * Displays an error message in the conversation area
  * @param {string} errorMessage - Error message to display
  */
-function displayError(errorMessage) {
+export function displayError(errorMessage) {
     const conversationArea = document.getElementById("conversation-area");
     if (!conversationArea) return;
 
@@ -771,7 +774,7 @@ function displayError(errorMessage) {
  * Sets the loading state of the UI
  * @param {boolean} isLoading - Whether the UI is in loading state
  */
-function setLoadingState(isLoading) {
+export function setLoadingState(isLoading) {
     const generateButton = document.getElementById("generate-button");
     const userInput = document.getElementById("user-input");
     const apiKeyInput = document.getElementById("api-key-input");
@@ -809,7 +812,7 @@ function setLoadingState(isLoading) {
  * Programmatically sets the resolution dropdown value
  * @param {string} resolution - Resolution value (1K, 2K, 4K)
  */
-function setResolution(resolution) {
+export function setResolution(resolution) {
     const dropdown = document.getElementById("resolution-dropdown");
     if (!dropdown) return;
     dropdown.textContent = "";
@@ -823,7 +826,7 @@ function setResolution(resolution) {
  * Programmatically sets the aspect ratio dropdown value
  * @param {string} aspectRatio - Aspect ratio value (1:1, 16:9, 3:2, 21:9)
  */
-function setAspectRatio(aspectRatio) {
+export function setAspectRatio(aspectRatio) {
     const dropdown = document.getElementById("aspect-ratio-dropdown");
     if (!dropdown) return;
     dropdown.textContent = "";
@@ -839,7 +842,7 @@ function setAspectRatio(aspectRatio) {
  * @param {Array<Object>} models - Available models
  * @returns {boolean} true if model found and selected
  */
-function selectModelById(modelId, models) {
+export function selectModelById(modelId, models) {
     const dropdown = document.getElementById("model-dropdown");
     const menu = document.getElementById("model-menu");
     if (!dropdown || !menu) return false;
@@ -855,7 +858,7 @@ function selectModelById(modelId, models) {
     const caret = document.createElement("span");
     caret.className = "caret";
     dropdown.appendChild(caret);
-    selectedModel = modelId;
+    STATE.selectedModel = modelId;
     return true;
 }
 
@@ -863,7 +866,7 @@ function selectModelById(modelId, models) {
  * Displays a warning message in the conversation area
  * @param {string} message - Warning message to display
  */
-function displayWarning(message) {
+export function displayWarning(message) {
     const warningDisplay = document.getElementById("warning-display");
     if (!warningDisplay) return;
 
@@ -886,7 +889,7 @@ function displayWarning(message) {
  * @param {Conversation} conversation - Conversation object with entries
  * @returns {void}
  */
-function renderConversation(conversation) {
+export function renderConversation(conversation) {
     const conversationArea = document.getElementById("conversation-area");
     if (!conversationArea) return;
 

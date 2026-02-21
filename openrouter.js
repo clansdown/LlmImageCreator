@@ -3,6 +3,8 @@
  * Handles communication with OpenRouter for models, balance, and image generation
  */
 
+import { SYSTEM_PROMPT } from './prompt.js';
+
 /** @type {string} */
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
@@ -12,7 +14,7 @@ const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
  * @returns {Promise<Array<Object>>} Array of model objects with image generation capability
  * @throws {Error} If API request fails
  */
-function fetchModels(apiKey) {
+export function fetchModels(apiKey) {
     return fetch(OPENROUTER_BASE_URL + "/models", {
         method: "GET",
         headers: {
@@ -48,7 +50,7 @@ function fetchModels(apiKey) {
  * @returns {Promise<Object>} Object with total_credits and total_usage
  * @throws {Error} If API request fails
  */
-function fetchBalance(apiKey) {
+export function fetchBalance(apiKey) {
     return fetch(OPENROUTER_BASE_URL + "/credits", {
         method: "GET",
         headers: {
@@ -82,7 +84,7 @@ function fetchBalance(apiKey) {
  * @returns {Promise<Object>} Chat completion response with images
  * @throws {Error} If API request fails
  */
-function generateImage(apiKey, prompt, model, systemPrompt, conversationHistory, imageConfig, seed) {
+export function generateImage(apiKey, prompt, model, systemPrompt, conversationHistory, imageConfig, seed) {
     /** @type {Array<{role: string, content: string}>} */
     const messages = [];
 
@@ -156,7 +158,7 @@ function generateImage(apiKey, prompt, model, systemPrompt, conversationHistory,
  * @returns {Promise<Object>} Generation info with usage and cost
  * @throws {Error} If API request fails
  */
-function getGenerationInfo(apiKey, generationId) {
+export function getGenerationInfo(apiKey, generationId) {
     return fetch(OPENROUTER_BASE_URL + "/generation?id=" + generationId, {
         method: "GET",
         headers: {
@@ -180,7 +182,7 @@ function getGenerationInfo(apiKey, generationId) {
  * @returns {Promise<string>} Generated title text
  * @throws {Error} If API request fails
  */
-function generateTitle(apiKey, prompt, systemPrompt, model) {
+export function generateTitle(apiKey, prompt, systemPrompt, model) {
     /** @type {Array<{role: string, content: string}>} */
     const messages = [];
     

@@ -43,7 +43,7 @@ const STORAGE_IMAGES_DIR = "images";
  * Gets the OPFS root directory handle
  * @returns {Promise<FileSystemDirectoryHandle>} Root directory handle
  */
-function getOPFSHandle() {
+export function getOPFSHandle() {
     return window.navigator.storage.getDirectory();
 }
 
@@ -53,7 +53,7 @@ function getOPFSHandle() {
  * @param {string} dirName - Directory name to ensure exists
  * @returns {Promise<FileSystemDirectoryHandle>} Directory handle
  */
-async function ensureDirectory(parentDir, dirName) {
+export async function ensureDirectory(parentDir, dirName) {
     try {
         return await parentDir.getDirectoryHandle(dirName, { create: true });
     } catch (e) {
@@ -67,7 +67,7 @@ async function ensureDirectory(parentDir, dirName) {
  * @param {string} value - Value to store
  * @returns {Promise<void>}
  */
-async function savePreference(key, value) {
+export async function savePreference(key, value) {
     try {
         const root = await getOPFSHandle();
         const prefsDir = await ensureDirectory(root, STORAGE_PREFERENCES_DIR);
@@ -86,7 +86,7 @@ async function savePreference(key, value) {
  * @param {string} [defaultValue] - Default value if not found
  * @returns {Promise<string|null>} Preference value
  */
-async function getPreference(key, defaultValue) {
+export async function getPreference(key, defaultValue) {
     try {
         const root = await getOPFSHandle();
         const prefsDir = await ensureDirectory(root, STORAGE_PREFERENCES_DIR);
@@ -106,7 +106,7 @@ async function getPreference(key, defaultValue) {
  * Lists all preference keys
  * @returns {Promise<Array<string>>} Array of preference keys
  */
-async function listPreferences() {
+export async function listPreferences() {
     try {
         const root = await getOPFSHandle();
         const prefsDir = await ensureDirectory(root, STORAGE_PREFERENCES_DIR);
@@ -128,7 +128,7 @@ async function listPreferences() {
  * @param {string} key - Preference key (filename)
  * @returns {Promise<void>}
  */
-async function deletePreference(key) {
+export async function deletePreference(key) {
     try {
         const root = await getOPFSHandle();
         const prefsDir = await ensureDirectory(root, STORAGE_PREFERENCES_DIR);
@@ -142,7 +142,7 @@ async function deletePreference(key) {
  * Clears all preferences
  * @returns {Promise<void>}
  */
-async function clearAllPreferences() {
+export async function clearAllPreferences() {
     try {
         const root = await getOPFSHandle();
         const prefsDir = await ensureDirectory(root, STORAGE_PREFERENCES_DIR);
@@ -158,7 +158,7 @@ async function clearAllPreferences() {
  * Creates a new conversation directory
  * @returns {Promise<number>} Epoch timestamp for the conversation
  */
-async function createConversation() {
+export async function createConversation() {
     const timestamp = Math.floor(Date.now() / 1000);
     try {
         const root = await getOPFSHandle();
@@ -176,7 +176,7 @@ async function createConversation() {
  * Lists all conversation timestamps
  * @returns {Promise<Array<number>>} Array of epoch timestamps
  */
-async function listConversations() {
+export async function listConversations() {
     try {
         const root = await getOPFSHandle();
         const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
@@ -202,7 +202,7 @@ async function listConversations() {
  * @param {number} timestamp - Conversation timestamp
  * @returns {Promise<Object|null>} Conversation data
  */
-async function loadConversation(timestamp) {
+export async function loadConversation(timestamp) {
     try {
         const root = await getOPFSHandle();
         const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
@@ -222,7 +222,7 @@ async function loadConversation(timestamp) {
  * @param {Object} conversationData - Conversation object
  * @returns {Promise<void>}
  */
-async function saveConversation(timestamp, conversationData) {
+export async function saveConversation(timestamp, conversationData) {
     try {
         const root = await getOPFSHandle();
         const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
@@ -241,7 +241,7 @@ async function saveConversation(timestamp, conversationData) {
  * @param {number} timestamp - Conversation timestamp
  * @returns {Promise<void>}
  */
-async function deleteConversation(timestamp) {
+export async function deleteConversation(timestamp) {
     try {
         const root = await getOPFSHandle();
         const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
@@ -257,7 +257,7 @@ async function deleteConversation(timestamp) {
  * @param {string} imageData - Base64 data URL or raw base64 string
  * @returns {Promise<number|null>} Image index number, or null on error
  */
-async function saveImage(timestamp, imageData) {
+export async function saveImage(timestamp, imageData) {
     try {
         const root = await getOPFSHandle();
         const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
@@ -299,7 +299,7 @@ async function saveImage(timestamp, imageData) {
  * @param {FileSystemDirectoryHandle} imagesDir - Images directory handle
  * @returns {Promise<number>} Next image number
  */
-async function getNextImageIndex(imagesDir) {
+export async function getNextImageIndex(imagesDir) {
     let maxIndex = 0;
     for await (const entry of imagesDir.values()) {
         if (entry.kind === "file" && entry.name.endsWith(".png")) {
@@ -318,7 +318,7 @@ async function getNextImageIndex(imagesDir) {
  * @param {number} imageIndex - Image index number
  * @returns {Promise<Blob|null>} Image blob
  */
-async function getImage(timestamp, imageIndex) {
+export async function getImage(timestamp, imageIndex) {
     try {
         const root = await getOPFSHandle();
         const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
@@ -337,7 +337,7 @@ async function getImage(timestamp, imageIndex) {
  * @param {number} imageIndex - Image index number
  * @returns {Promise<string|null>} Base64 data URL
  */
-async function getImageDataURL(timestamp, imageIndex) {
+export async function getImageDataURL(timestamp, imageIndex) {
     try {
         const blob = await getImage(timestamp, imageIndex);
         if (!blob) return null;
@@ -361,7 +361,7 @@ async function getImageDataURL(timestamp, imageIndex) {
  * @param {number} timestamp - Conversation timestamp
  * @returns {Promise<void>}
  */
-async function deleteImagesForConversation(timestamp) {
+export async function deleteImagesForConversation(timestamp) {
     try {
         const root = await getOPFSHandle();
         const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
@@ -381,7 +381,7 @@ async function deleteImagesForConversation(timestamp) {
  * @param {ConversationSummary} summaryData - Summary data object
  * @returns {Promise<void>}
  */
-async function saveSummary(timestamp, summaryData) {
+export async function saveSummary(timestamp, summaryData) {
     try {
         const root = await getOPFSHandle();
         const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
@@ -400,7 +400,7 @@ async function saveSummary(timestamp, summaryData) {
  * @param {number} timestamp - Conversation timestamp
  * @returns {Promise<ConversationSummary|null>} Summary data or null
  */
-async function loadSummary(timestamp) {
+export async function loadSummary(timestamp) {
     try {
         const root = await getOPFSHandle();
         const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
