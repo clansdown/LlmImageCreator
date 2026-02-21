@@ -4,7 +4,7 @@
  */
 
 /** @type {string} */
-var OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 /**
  * Fetches all available models from OpenRouter
@@ -25,15 +25,15 @@ function fetchModels(apiKey) {
         }
         return response.json();
     }).then(function(data) {
-        var allModels = data.data || [];
-        var imageModels = allModels.filter(function(model) {
+        const allModels = data.data || [];
+        const imageModels = allModels.filter(function(model) {
             return model.architecture &&
                    model.architecture.output_modalities &&
                    model.architecture.output_modalities.indexOf("image") !== -1;
         });
         imageModels.sort(function(a, b) {
-            var nameA = (a.name || "").toLowerCase();
-            var nameB = (b.name || "").toLowerCase();
+            const nameA = (a.name || "").toLowerCase();
+            const nameB = (b.name || "").toLowerCase();
             if (nameA < nameB) return -1;
             if (nameA > nameB) return 1;
             return 0;
@@ -84,7 +84,7 @@ function fetchBalance(apiKey) {
  */
 function generateImage(apiKey, prompt, model, systemPrompt, conversationHistory, imageConfig, seed) {
     /** @type {Array<{role: string, content: string}>} */
-    var messages = [];
+    const messages = [];
 
     if (systemPrompt) {
         messages.push({
@@ -108,7 +108,7 @@ function generateImage(apiKey, prompt, model, systemPrompt, conversationHistory,
     });
 
     /** @type {Object} */
-    var body = {
+    const body = {
         model: model,
         messages: messages,
         modalities: ["image", "text"]
@@ -116,7 +116,7 @@ function generateImage(apiKey, prompt, model, systemPrompt, conversationHistory,
 
     if (imageConfig) {
         /** @type {Object} */
-        var imageConfigObj = {};
+        const imageConfigObj = {};
         if (imageConfig.imageSize) {
             imageConfigObj.image_size = imageConfig.imageSize;
         }
@@ -182,7 +182,7 @@ function getGenerationInfo(apiKey, generationId) {
  */
 function generateTitle(apiKey, prompt, systemPrompt, model) {
     /** @type {Array<{role: string, content: string}>} */
-    var messages = [];
+    const messages = [];
     
     messages.push({
         role: "system",
@@ -195,7 +195,7 @@ function generateTitle(apiKey, prompt, systemPrompt, model) {
     });
     
     /** @type {Object} */
-    var body = {
+    const body = {
         model: model,
         messages: messages
     };

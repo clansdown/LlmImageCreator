@@ -17,7 +17,7 @@
  * @returns {string} API key value
  */
 function getApiKey() {
-    var input = document.getElementById("api-key-input");
+    const input = document.getElementById("api-key-input");
     if (!input) return "";
     return input.value.trim();
 }
@@ -36,7 +36,7 @@ function generateRandomSeed() {
  * @returns {Promise<string>} Generated title
  */
 async function generateConversationTitle(prompt) {
-    var apiKey = getApiKey();
+    const apiKey = getApiKey();
     if (!apiKey) return "";
     
     try {

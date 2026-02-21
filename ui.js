@@ -14,16 +14,16 @@
  * @param {Array<Object>} models - Array of model objects
  */
 function populateModelDropdown(models) {
-    var dropdown = document.getElementById("model-dropdown");
+    const dropdown = document.getElementById("model-dropdown");
     if (!dropdown) return;
 
-    var menu = document.getElementById("model-menu");
+    const menu = document.getElementById("model-menu");
     if (!menu) return;
 
     menu.innerHTML = "";
 
     if (!models || models.length === 0) {
-        var emptyItem = document.createElement("a");
+        const emptyItem = document.createElement("a");
         emptyItem.className = "dropdown-item";
         emptyItem.textContent = "No models available";
         menu.appendChild(emptyItem);
@@ -31,7 +31,7 @@ function populateModelDropdown(models) {
     }
 
     models.forEach(function(model) {
-        var item = document.createElement("a");
+        const item = document.createElement("a");
         item.className = "dropdown-item";
         item.href = "#";
         item.textContent = model.name;
@@ -41,7 +41,7 @@ function populateModelDropdown(models) {
             e.preventDefault();
             dropdown.textContent = "";
             dropdown.textContent = model.name + " ";
-            var caret = document.createElement("span");
+            const caret = document.createElement("span");
             caret.className = "caret";
             dropdown.appendChild(caret);
             selectedModel = model.id;
@@ -51,10 +51,10 @@ function populateModelDropdown(models) {
         menu.appendChild(item);
     });
 
-    var firstModel = models[0];
+    const firstModel = models[0];
     dropdown.textContent = "";
     dropdown.textContent = firstModel.name + " ";
-    var caret = document.createElement("span");
+    const caret = document.createElement("span");
     caret.className = "caret";
     dropdown.appendChild(caret);
     selectedModel = firstModel.id;
@@ -64,21 +64,21 @@ function populateModelDropdown(models) {
  * Clears the model dropdown
  */
 function clearModelDropdown() {
-    var dropdown = document.getElementById("model-dropdown");
+    const dropdown = document.getElementById("model-dropdown");
     if (!dropdown) return;
 
-    var menu = document.getElementById("model-menu");
+    const menu = document.getElementById("model-menu");
     if (!menu) return;
 
     menu.innerHTML = "";
 
-    var placeholderItem = document.createElement("a");
+    const placeholderItem = document.createElement("a");
     placeholderItem.className = "dropdown-item";
     placeholderItem.textContent = "API key required";
     menu.appendChild(placeholderItem);
 
     dropdown.textContent = "Select Model ";
-    var caret = document.createElement("span");
+    const caret = document.createElement("span");
     caret.className = "caret";
     dropdown.appendChild(caret);
 
@@ -91,7 +91,7 @@ function clearModelDropdown() {
  * @param {string|null} warning - Optional warning message
  */
 function updateBalanceDisplay(balance, warning) {
-    var balanceElement = document.getElementById("balance-display");
+    const balanceElement = document.getElementById("balance-display");
     if (!balanceElement) return;
 
     if (warning) {
@@ -106,7 +106,7 @@ function updateBalanceDisplay(balance, warning) {
         return;
     }
 
-    var available = balance.totalCredits - balance.totalUsage;
+    const available = balance.totalCredits - balance.totalUsage;
     balanceElement.textContent = "$" + available.toFixed(2);
     balanceElement.className = "text-light";
 }
@@ -115,9 +115,9 @@ function updateBalanceDisplay(balance, warning) {
  * Toggles the left column visibility
  */
 function toggleLeftColumn() {
-    var leftColumn = document.getElementById("left-column");
-    var rightColumn = document.getElementById("right-column");
-    var toggleBtn = document.getElementById("toggle-sidebar-btn");
+    const leftColumn = document.getElementById("left-column");
+    const rightColumn = document.getElementById("right-column");
+    const toggleBtn = document.getElementById("toggle-sidebar-btn");
 
     if (!leftColumn || !rightColumn) return;
 
@@ -141,10 +141,34 @@ function toggleLeftColumn() {
  * @param {boolean} enabled - Whether the button should be enabled
  */
 function setGenerateButtonState(enabled) {
-    var button = document.getElementById("generate-button");
+    const button = document.getElementById("generate-button");
     if (!button) return;
 
     button.disabled = !enabled;
+}
+
+function getResolution() {
+    const dropdown = document.getElementById("resolution-dropdown");
+    if (!dropdown) return "1K";
+    return dropdown.textContent.trim();
+}
+
+function getAspectRatio() {
+    const dropdown = document.getElementById("aspect-ratio-dropdown");
+    if (!dropdown) return "1:1";
+    return dropdown.textContent.trim();
+}
+
+function getUserPrompt() {
+    const textarea = document.getElementById("user-input");
+    if (!textarea) return "";
+    return textarea.value.trim();
+}
+
+function clearConversationHistory() {
+    const historyContainer = document.getElementById("conversation-history");
+    if (!historyContainer) return;
+    historyContainer.innerHTML = "";
 }
 
 /**
@@ -152,7 +176,7 @@ function setGenerateButtonState(enabled) {
  * @returns {string} Selected resolution (1K, 2K, or 4K)
  */
 function getResolution() {
-    var dropdown = document.getElementById("resolution-dropdown");
+    const dropdown = document.getElementById("resolution-dropdown");
     if (!dropdown) return "1K";
     return dropdown.textContent.trim();
 }
@@ -162,7 +186,7 @@ function getResolution() {
  * @returns {string} Selected aspect ratio
  */
 function getAspectRatio() {
-    var dropdown = document.getElementById("aspect-ratio-dropdown");
+    const dropdown = document.getElementById("aspect-ratio-dropdown");
     if (!dropdown) return "1:1";
     return dropdown.textContent.trim();
 }
@@ -172,7 +196,7 @@ function getAspectRatio() {
  * @returns {string} User's input prompt
  */
 function getUserPrompt() {
-    var textarea = document.getElementById("user-input");
+    const textarea = document.getElementById("user-input");
     if (!textarea) return "";
     return textarea.value.trim();
 }
@@ -181,7 +205,7 @@ function getUserPrompt() {
  * Clears the conversation history display
  */
 function clearConversationHistory() {
-    var historyContainer = document.getElementById("conversation-history");
+    const historyContainer = document.getElementById("conversation-history");
     if (!historyContainer) return;
     historyContainer.innerHTML = "";
 }
@@ -192,26 +216,50 @@ function clearConversationHistory() {
  * @returns {Promise<void>}
  */
 async function populateConversationList(timestamps) {
-    var historyContainer = document.getElementById("conversation-history");
+    const historyContainer = document.getElementById("conversation-history");
     if (!historyContainer) return;
 
     clearConversationHistory();
 
     if (!timestamps || timestamps.length === 0) {
-        var emptyDiv = document.createElement("div");
+        const emptyDiv = document.createElement("div");
         emptyDiv.className = "small text-muted";
         emptyDiv.textContent = "No saved conversations";
         historyContainer.appendChild(emptyDiv);
         return;
     }
 
-    for (var i = 0; i < timestamps.length; i++) {
-        var timestamp = timestamps[i];
-        var conversation = await loadConversation(timestamp);
+    for (let i = 0; i < timestamps.length; i++) {
+        const timestamp = timestamps[i];
+        const conversation = await loadConversation(timestamp);
         if (conversation && conversation.entries && conversation.entries.length > 0) {
             createConversationItem(timestamp, conversation);
         }
     }
+}
+
+/**
+ * Sets the UI text for a conversation item in the sidebar
+ * @param {DocumentFragment} clone - Cloned template node
+ * @param {ConversationSummary} summary - Summary data object
+ * @param {number} timestamp - Conversation timestamp
+ * @param {Conversation} conversation - Conversation object
+ * @returns {void}
+ */
+function setConversationItemUI(clone, summary, timestamp, conversation) {
+    const dateElement = clone.querySelector("#conversation-date");
+    const previewElement = clone.querySelector("#conversation-preview");
+    if (!dateElement || !previewElement) return;
+
+    const title = (summary && summary.title && summary.title.trim().length > 0) ? summary.title : "New Conversation";
+    dateElement.textContent = title;
+
+    const date = new Date(timestamp * 1000);
+    const dateStr = date.toLocaleDateString() + " " + date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+
+    const messageCount = conversation && conversation.entries ? conversation.entries.length : 0;
+    const messageText = messageCount === 1 ? "message" : "messages";
+    previewElement.textContent = dateStr + " (" + messageCount + " " + messageText + ")";
 }
 
 /**
@@ -221,71 +269,50 @@ async function populateConversationList(timestamps) {
  * @returns {void}
  */
 function createConversationItem(timestamp, conversation) {
-    var historyContainer = document.getElementById("conversation-history");
+    const historyContainer = document.getElementById("conversation-history");
     if (!historyContainer) return;
 
-    var template = document.getElementById("conversation-item-template");
+    const template = document.getElementById("conversation-item-template");
     if (!template) return;
 
-    var clone = template.content.cloneNode(true);
-    var item = clone.querySelector(".conversation-item");
+    const clone = template.content.cloneNode(true);
+    const item = clone.querySelector(".conversation-item");
 
     item.dataset.timestamp = timestamp;
-    
-    var date = new Date(timestamp * 1000);
-    var dateStr = date.toLocaleDateString() + " " + date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
-    
+
+    const date = new Date(timestamp * 1000);
+    const dateStr = date.toLocaleDateString() + " " + date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+    const messageCount = conversation && conversation.entries ? conversation.entries.length : 0;
+
+    /** @type {ConversationSummary} */
+    const defaultSummary = { title: "New Conversation", imageCount: 0, entryCount: 0, created: timestamp, updated: timestamp };
+
     loadSummary(timestamp).then(function(summary) {
         /** @type {ConversationSummary} */
-        var summaryTyped = summary || { title: "New Conversation", imageCount: 0, entryCount: 0, created: timestamp, updated: timestamp };
-        var title = summaryTyped && summaryTyped.title ? summaryTyped.title : "New Conversation";
-        var dateElement = clone.querySelector("#conversation-date");
-        var previewElement = clone.querySelector("#conversation-preview");
-        if (dateElement) dateElement.textContent = title;
-        if (previewElement) previewElement.textContent = dateStr + " (" + conversation.entries.length + " messages)";
-        
-        if (summaryTyped && title !== "New Conversation" && title && title.trim().length > 0) {
-            console.log("Conversation", timestamp, "has existing title:", title);
-            return;
-        }
-        
-        console.log("Conversation", timestamp, "needs title generation. Current title:", title);
-        
-        if (conversation.entries && conversation.entries.length > 0) {
-            var firstPrompt = conversation.entries[0].message.text;
+        const summaryTyped = summary || defaultSummary;
+
+        setConversationItemUI(clone, summaryTyped, timestamp, conversation);
+
+        const title = (summaryTyped && summaryTyped.title && summaryTyped.title.trim().length > 0) ? summaryTyped.title : "New Conversation";
+        if (title === "New Conversation" && conversation.entries && conversation.entries.length > 0) {
+            const firstPrompt = conversation.entries[0].message.text;
             if (firstPrompt) {
-                console.log("Generating title for conversation", timestamp, "with prompt:", firstPrompt.substring(0, 50));
                 generateConversationTitle(firstPrompt).then(function(newTitle) {
                     if (newTitle && newTitle.trim().length > 0) {
-                        console.log("Title generated for conversation", timestamp, ":", newTitle);
                         updateConversationSummary(timestamp, newTitle).then(function(summaryData) {
-                            console.log("Summary updated for conversation", timestamp, "with title:", summaryData.title);
-                            updateConversationListItemTitle(timestamp, summaryData.title);
+                            setConversationItemUI(clone, summaryData, timestamp, conversation);
                         }).catch(function(e) {
                             console.error("Error saving new title for conversation", timestamp, ":", e);
                         });
-                    } else {
-                        console.log("Generated title was empty or invalid for conversation", timestamp);
                     }
                 }).catch(function(e) {
                     console.error("Error generating title for conversation", timestamp, ":", e);
                 });
-            } else {
-                console.log("Conversation", timestamp, "has no prompt text to generate title from");
             }
-        } else {
-            console.log("Conversation", timestamp, "has no entries, skipping title generation");
         }
     }).catch(function(e) {
         console.error("Failed to load summary for conversation", timestamp, e);
-        var dateElement = clone.querySelector("#conversation-date");
-        var previewElement = clone.querySelector("#conversation-preview");
-        if (dateElement) {
-            dateElement.textContent = "New Conversation";
-        }
-        if (previewElement) {
-            previewElement.textContent = dateStr + " (" + conversation.entries.length + " messages)";
-        }
+        setConversationItemUI(clone, defaultSummary, timestamp, conversation);
     });
 
     item.addEventListener("click", function() {
@@ -301,7 +328,7 @@ function createConversationItem(timestamp, conversation) {
  * @returns {Promise<void>}
  */
 async function loadConversationIntoView(timestamp) {
-    var conversation = await loadConversation(timestamp);
+    const conversation = await loadConversation(timestamp);
     if (!conversation) return;
 
     currentConversation = conversation;
@@ -326,9 +353,9 @@ async function loadConversationIntoView(timestamp) {
     clearConversationArea();
     renderConversation(conversation);
 
-    var historyContainer = document.getElementById("conversation-history");
+    const historyContainer = document.getElementById("conversation-history");
     if (historyContainer) {
-        var items = historyContainer.querySelectorAll(".conversation-item");
+        const items = historyContainer.querySelectorAll(".conversation-item");
         items.forEach(function(item) {
             item.classList.remove("selected");
             if (parseInt(item.dataset.timestamp, 10) === timestamp) {
@@ -348,9 +375,9 @@ async function handleNewConversation() {
     clearConversationArea();
     clearUserInput();
 
-    var historyContainer = document.getElementById("conversation-history");
+    const historyContainer = document.getElementById("conversation-history");
     if (historyContainer) {
-        var selectedItems = historyContainer.querySelectorAll(".selected");
+        const selectedItems = historyContainer.querySelectorAll(".selected");
         selectedItems.forEach(function(item) {
             item.classList.remove("selected");
         });
@@ -362,7 +389,7 @@ async function handleNewConversation() {
  * @returns {void}
  */
 function initTooltips() {
-    var tooltipTriggerList = [].slice.call(document.querySelectorAll("[data-bs-toggle=\"tooltip\"]"));
+    const tooltipTriggerList = [].slice.call(document.querySelectorAll("[data-bs-toggle=\"tooltip\"]"));
     tooltipTriggerList.map(function (tooltipTriggerEl) {
         return new bootstrap.Tooltip(tooltipTriggerEl);
     });
@@ -384,7 +411,7 @@ function initTooltipForElement(element) {
  * @returns {Promise<void>}
  */
 async function updateConversationList() {
-    var timestamps = await listConversations();
+    const timestamps = await listConversations();
     await populateConversationList(timestamps);
 }
 
@@ -392,18 +419,38 @@ async function updateConversationList() {
  * Updates a single conversation list item's title without full refresh
  * @param {number} timestamp - Conversation timestamp
  * @param {string} newTitle - New title to display
- * @returns {void}
+ * @returns {Promise<void>}
  */
-function updateConversationListItemTitle(timestamp, newTitle) {
-    var historyContainer = document.getElementById("conversation-history");
+async function updateConversationListItemTitle(timestamp) {
+    const historyContainer = document.getElementById("conversation-history");
     if (!historyContainer) return;
-    
-    var item = historyContainer.querySelector('.conversation-item[data-timestamp="' + timestamp + '"]');
-    if (item) {
-        var dateElement = item.querySelector(".conversation-date");
-        if (dateElement) {
-            dateElement.textContent = newTitle;
-        }
+
+    const item = historyContainer.querySelector('.conversation-item[data-timestamp="' + timestamp + '"]');
+    if (!item) return;
+
+    const conversation = await loadConversation(timestamp);
+    if (!conversation) return;
+
+    let summary = await loadSummary(timestamp);
+    if (!summary) {
+        summary = { title: "New Conversation", imageCount: 0, entryCount: 0, created: timestamp, updated: timestamp };
+    }
+
+    const template = document.getElementById("conversation-item-template");
+    if (!template) return;
+    const tempClone = template.content.cloneNode(true);
+    setConversationItemUI(tempClone, summary, timestamp, conversation);
+
+    const dateElement = item.querySelector("#conversation-date");
+    const previewElement = item.querySelector("#conversation-preview");
+    const tempDateElement = tempClone.querySelector("#conversation-date");
+    const tempPreviewElement = tempClone.querySelector("#conversation-preview");
+
+    if (dateElement && tempDateElement) {
+        dateElement.textContent = tempDateElement.textContent;
+    }
+    if (previewElement && tempPreviewElement) {
+        previewElement.textContent = tempPreviewElement.textContent;
     }
 }
 
@@ -413,15 +460,15 @@ function updateConversationListItemTitle(timestamp, newTitle) {
  * @returns {Promise<void>}
  */
 async function updateConversationListDate(timestamp) {
-    var conversation = await loadConversation(timestamp);
+    const conversation = await loadConversation(timestamp);
     if (!conversation) return;
     
-    var historyContainer = document.getElementById("conversation-history");
+    const historyContainer = document.getElementById("conversation-history");
     if (!historyContainer) return;
     
-    var item = historyContainer.querySelector('.conversation-item[data-timestamp="' + timestamp + '"]');
+    const item = historyContainer.querySelector('.conversation-item[data-timestamp="' + timestamp + '"]');
     if (item) {
-        var previewElement = item.querySelector(".conversation-preview");
+        const previewElement = item.querySelector(".conversation-preview");
         if (previewElement) {
             previewElement.textContent = conversation.entries.length + " messages";
         }
@@ -436,36 +483,36 @@ async function updateConversationListDate(timestamp) {
  * @returns {void}
  */
 function renderMessageEntry(entry, index, conversationTimestamp) {
-    var conversationArea = document.getElementById("conversation-area");
+    const conversationArea = document.getElementById("conversation-area");
     if (!conversationArea) return;
 
-    var template = document.getElementById("message-entry-template");
+    const template = document.getElementById("message-entry-template");
     if (!template) return;
 
-    var clone = template.content.cloneNode(true);
-    var messageEntry = clone.querySelector(".message-entry");
+    const clone = template.content.cloneNode(true);
+    const messageEntry = clone.querySelector(".message-entry");
 
     clone.querySelector(".user-prompt-text").textContent = entry.message.text;
 
-    var imagesContainer = clone.querySelector(".images-container");
+    const imagesContainer = clone.querySelector(".images-container");
     if (entry.response.imageFilenames && entry.response.imageFilenames.length > 0) {
         if (entry.response.imageFilenames[0] === "generating") {
-            var spinnerTemplate = document.getElementById("image-loading-template");
-            var spinnerClone = spinnerTemplate.content.cloneNode(true);
+            const spinnerTemplate = document.getElementById("image-loading-template");
+            const spinnerClone = spinnerTemplate.content.cloneNode(true);
             imagesContainer.appendChild(spinnerClone);
         } else {
             entry.response.imageFilenames.forEach(function(filename, imgIndex) {
-                var resolution = entry.response.imageResolutions ? entry.response.imageResolutions[imgIndex] : "1K";
+                const resolution = entry.response.imageResolutions ? entry.response.imageResolutions[imgIndex] : "1K";
                 getImage(conversationTimestamp, parseInt(filename, 10)).then(function(blob) {
                     if (!blob) return;
                     
-                    var template = document.getElementById("image-entry-template");
-                    var imgTemplate = template.content.cloneNode(true);
-                    var imgItemContainer = imgTemplate.querySelector(".image-item-container");
-                    var imgWrapper = imgTemplate.querySelector(".image-wrapper");
-                    var imgElement = imgTemplate.querySelector(".generated-image");
+                    const template = document.getElementById("image-entry-template");
+                    const imgTemplate = template.content.cloneNode(true);
+                    const imgItemContainer = imgTemplate.querySelector(".image-item-container");
+                    const imgWrapper = imgTemplate.querySelector(".image-wrapper");
+                    const imgElement = imgTemplate.querySelector(".generated-image");
                     
-                    var objectUrl = URL.createObjectURL(blob);
+                    const objectUrl = URL.createObjectURL(blob);
                     imgElement.onload = function() {
                         URL.revokeObjectURL(objectUrl);
                         imgWrapper.style.width = imgElement.width + "px";
@@ -478,19 +525,19 @@ function renderMessageEntry(entry, index, conversationTimestamp) {
                     imgElement.dataset.entryIndex = index;
                     imgElement.dataset.imageIndex = imgIndex;
                     
-                    var downloadBtn = imgTemplate.querySelector(".download-btn");
+                    const downloadBtn = imgTemplate.querySelector(".download-btn");
                     downloadBtn.className = "btn btn-sm btn-outline-light";
                     downloadBtn.dataset.conversationTimestamp = conversationTimestamp;
                     downloadBtn.dataset.entryIndex = index;
                     downloadBtn.dataset.imageIndex = imgIndex;
                     downloadBtn.dataset.filename = filename;
                     downloadBtn.addEventListener("click", function(e) {
-                        var ts = parseInt(conversationTimestamp, 10);
-                        var fn = filename;
+                        const ts = parseInt(conversationTimestamp, 10);
+                        const fn = filename;
                         getImage(ts, parseInt(fn, 10)).then(function(imgBlob) {
                             if (!imgBlob) return;
-                            var url = URL.createObjectURL(imgBlob);
-                            var a = document.createElement("a");
+                            const url = URL.createObjectURL(imgBlob);
+                            const a = document.createElement("a");
                             a.href = url;
                             a.download = "image_" + ts + "_" + fn + ".png";
                             document.body.appendChild(a);
@@ -503,7 +550,7 @@ function renderMessageEntry(entry, index, conversationTimestamp) {
                     });
                     initTooltipForElement(downloadBtn);
                     
-                    var regenerateNewBtn = imgTemplate.querySelector(".regenerate-new-btn");
+                    const regenerateNewBtn = imgTemplate.querySelector(".regenerate-new-btn");
                     regenerateNewBtn.className = "btn btn-sm btn-outline-light";
                     regenerateNewBtn.dataset.entryIndex = index;
                     regenerateNewBtn.dataset.imageIndex = imgIndex;
@@ -512,7 +559,7 @@ function renderMessageEntry(entry, index, conversationTimestamp) {
                     });
                     initTooltipForElement(regenerateNewBtn);
                     
-                    var regenerateLargerBtn = imgTemplate.querySelector(".regenerate-larger-btn");
+                    const regenerateLargerBtn = imgTemplate.querySelector(".regenerate-larger-btn");
                     regenerateLargerBtn.className = "btn btn-sm btn-outline-light";
                     regenerateLargerBtn.disabled = (resolution === "4K");
                     regenerateLargerBtn.dataset.entryIndex = index;
@@ -528,12 +575,12 @@ function renderMessageEntry(entry, index, conversationTimestamp) {
         }
     }
 
-    var llmTextBtn = clone.querySelector(".toggle-llm-text");
-    var llmTextContent = clone.querySelector(".llm-text-content");
-    var expandIcon = clone.querySelector(".expand-icon");
-    var collapseIcon = clone.querySelector(".collapse-icon");
-    var btnText = clone.querySelector(".btn-text");
-    var copyLlmBtn = clone.querySelector(".copy-llm-btn");
+    const llmTextBtn = clone.querySelector(".toggle-llm-text");
+    const llmTextContent = clone.querySelector(".llm-text-content");
+    const expandIcon = clone.querySelector(".expand-icon");
+    const collapseIcon = clone.querySelector(".collapse-icon");
+    const btnText = clone.querySelector(".btn-text");
+    const copyLlmBtn = clone.querySelector(".copy-llm-btn");
     
     initTooltipForElement(llmTextBtn);
     initTooltipForElement(copyLlmBtn);
@@ -557,7 +604,7 @@ function renderMessageEntry(entry, index, conversationTimestamp) {
 
         copyLlmBtn.addEventListener("click", function() {
             navigator.clipboard.writeText(entry.response.text).then(function() {
-                var originalHtml = copyLlmBtn.innerHTML;
+                const originalHtml = copyLlmBtn.innerHTML;
                 copyLlmBtn.innerHTML = "<span>Copied!</span>";
                 setTimeout(function() {
                     copyLlmBtn.innerHTML = originalHtml;
@@ -568,9 +615,9 @@ function renderMessageEntry(entry, index, conversationTimestamp) {
         llmTextBtn.style.display = "none";
     }
 
-    var copyToTextareaBtn = clone.querySelector(".copy-to-textarea-btn");
+    const copyToTextareaBtn = clone.querySelector(".copy-to-textarea-btn");
     copyToTextareaBtn.addEventListener("click", function() {
-        var userInput = document.getElementById("user-input");
+        const userInput = document.getElementById("user-input");
         if (userInput) {
             userInput.value = entry.message.text;
             userInput.focus();
@@ -585,16 +632,23 @@ function renderMessageEntry(entry, index, conversationTimestamp) {
  * Clears the conversation area in the right column
  */
 function clearConversationArea() {
-    var conversationArea = document.getElementById("conversation-area");
+    const conversationArea = document.getElementById("conversation-area");
     if (!conversationArea) return;
     conversationArea.innerHTML = "";
+}
+
+function clearUserInput() {
+    const textarea = document.getElementById("user-input");
+    if (!textarea) return;
+    textarea.value = "";
+    setGenerateButtonState(false);
 }
 
 /**
  * Clears the user input textarea
  */
 function clearUserInput() {
-    var textarea = document.getElementById("user-input");
+    const textarea = document.getElementById("user-input");
     if (!textarea) return;
     textarea.value = "";
     setGenerateButtonState(false);
@@ -608,27 +662,27 @@ function clearUserInput() {
  */
 async function handleRegenerateWithNewSeed(entryIndex, imageIndex) {
     if (!currentConversation || !currentConversation.entries[entryIndex]) return;
-    var entry = currentConversation.entries[entryIndex];
+    const entry = currentConversation.entries[entryIndex];
     
-    var apiKey = getApiKey();
+    const apiKey = getApiKey();
     if (!apiKey) return;
 
-    var aspectRatio = getAspectRatio();
-    var resolution = entry.response.imageResolutions ? entry.response.imageResolutions[imageIndex] : "1K";
+    const aspectRatio = getAspectRatio();
+    const resolution = entry.response.imageResolutions ? entry.response.imageResolutions[imageIndex] : "1K";
     
-    var imageConfig = {
+    const imageConfig = {
         imageSize: resolution,
         aspectRatio: aspectRatio
     };
     
-    var newSeed = generateRandomSeed();
-    var prompt = entry.message.text;
+    const newSeed = generateRandomSeed();
+    const prompt = entry.message.text;
     
     setLoadingState(true);
     
     generateImage(apiKey, prompt, selectedModel, SYSTEM_PROMPT, conversationHistory, imageConfig, newSeed)
         .then(function(response) {
-            var urls = extractImageUrls(response);
+            const urls = extractImageUrls(response);
             if (urls.length === 0) return Promise.resolve();
             
             return saveImage(currentConversation.timestamp, urls[0]).then(function(newIndex) {
@@ -657,27 +711,27 @@ async function handleRegenerateWithNewSeed(entryIndex, imageIndex) {
  */
 async function handleRegenerateLarger(entryIndex, imageIndex) {
     if (!currentConversation || !currentConversation.entries[entryIndex]) return;
-    var entry = currentConversation.entries[entryIndex];
+    const entry = currentConversation.entries[entryIndex];
     if (entry.response.imageResolutions[imageIndex] === "4K") return;
 
-    var apiKey = getApiKey();
+    const apiKey = getApiKey();
     if (!apiKey) return;
     
-    var aspectRatio = getAspectRatio();
+    const aspectRatio = getAspectRatio();
 
-    var imageConfig = {
+    const imageConfig = {
         imageSize: "4K",
         aspectRatio: aspectRatio
     };
 
-    var seed = entry.message.seed;
-    var prompt = entry.message.text;
+    const seed = entry.message.seed;
+    const prompt = entry.message.text;
 
     setLoadingState(true);
 
     generateImage(apiKey, prompt, selectedModel, SYSTEM_PROMPT, conversationHistory, imageConfig, seed)
         .then(function(response) {
-            var urls = extractImageUrls(response);
+            const urls = extractImageUrls(response);
             if (urls.length === 0) return Promise.resolve();
 
             return saveImage(currentConversation.timestamp, urls[0]).then(function(newIndex) {
@@ -703,10 +757,10 @@ async function handleRegenerateLarger(entryIndex, imageIndex) {
  * @param {string} errorMessage - Error message to display
  */
 function displayError(errorMessage) {
-    var conversationArea = document.getElementById("conversation-area");
+    const conversationArea = document.getElementById("conversation-area");
     if (!conversationArea) return;
 
-    var errorDiv = document.createElement("div");
+    const errorDiv = document.createElement("div");
     errorDiv.className = "alert alert-danger mb-3";
     errorDiv.textContent = "Error: " + errorMessage;
 
@@ -719,12 +773,12 @@ function displayError(errorMessage) {
  * @param {boolean} isLoading - Whether the UI is in loading state
  */
 function setLoadingState(isLoading) {
-    var generateButton = document.getElementById("generate-button");
-    var userInput = document.getElementById("user-input");
-    var apiKeyInput = document.getElementById("api-key-input");
-    var modelDropdown = document.getElementById("model-dropdown");
-    var resolutionDropdown = document.getElementById("resolution-dropdown");
-    var aspectRatioDropdown = document.getElementById("aspect-ratio-dropdown");
+    const generateButton = document.getElementById("generate-button");
+    const userInput = document.getElementById("user-input");
+    const apiKeyInput = document.getElementById("api-key-input");
+    const modelDropdown = document.getElementById("model-dropdown");
+    const resolutionDropdown = document.getElementById("resolution-dropdown");
+    const aspectRatioDropdown = document.getElementById("aspect-ratio-dropdown");
 
     if (generateButton) {
         generateButton.disabled = isLoading;
@@ -757,11 +811,11 @@ function setLoadingState(isLoading) {
  * @param {string} resolution - Resolution value (1K, 2K, 4K)
  */
 function setResolution(resolution) {
-    var dropdown = document.getElementById("resolution-dropdown");
+    const dropdown = document.getElementById("resolution-dropdown");
     if (!dropdown) return;
     dropdown.textContent = "";
     dropdown.textContent = resolution + " ";
-    var caret = document.createElement("span");
+    const caret = document.createElement("span");
     caret.className = "caret";
     dropdown.appendChild(caret);
 }
@@ -771,11 +825,11 @@ function setResolution(resolution) {
  * @param {string} aspectRatio - Aspect ratio value (1:1, 16:9, 3:2, 21:9)
  */
 function setAspectRatio(aspectRatio) {
-    var dropdown = document.getElementById("aspect-ratio-dropdown");
+    const dropdown = document.getElementById("aspect-ratio-dropdown");
     if (!dropdown) return;
     dropdown.textContent = "";
     dropdown.textContent = aspectRatio + " ";
-    var caret = document.createElement("span");
+    const caret = document.createElement("span");
     caret.className = "caret";
     dropdown.appendChild(caret);
 }
@@ -787,11 +841,11 @@ function setAspectRatio(aspectRatio) {
  * @returns {boolean} true if model found and selected
  */
 function selectModelById(modelId, models) {
-    var dropdown = document.getElementById("model-dropdown");
-    var menu = document.getElementById("model-menu");
+    const dropdown = document.getElementById("model-dropdown");
+    const menu = document.getElementById("model-menu");
     if (!dropdown || !menu) return false;
 
-    var foundModel = models.find(function(model) {
+    const foundModel = models.find(function(model) {
         return model.id === modelId;
     });
 
@@ -799,7 +853,7 @@ function selectModelById(modelId, models) {
 
     dropdown.textContent = "";
     dropdown.textContent = foundModel.name + " ";
-    var caret = document.createElement("span");
+    const caret = document.createElement("span");
     caret.className = "caret";
     dropdown.appendChild(caret);
     selectedModel = modelId;
@@ -811,14 +865,14 @@ function selectModelById(modelId, models) {
  * @param {string} message - Warning message to display
  */
 function displayWarning(message) {
-    var warningDisplay = document.getElementById("warning-display");
+    const warningDisplay = document.getElementById("warning-display");
     if (!warningDisplay) return;
 
     warningDisplay.style.display = "block";
     warningDisplay.className = "alert alert-warning mb-3";
     warningDisplay.textContent = message;
 
-    var conversationArea = document.getElementById("conversation-area");
+    const conversationArea = document.getElementById("conversation-area");
     if (conversationArea) {
         if (conversationArea.children.length > 0) {
             conversationArea.insertBefore(warningDisplay, conversationArea.firstChild);
@@ -834,7 +888,7 @@ function displayWarning(message) {
  * @returns {void}
  */
 function renderConversation(conversation) {
-    var conversationArea = document.getElementById("conversation-area");
+    const conversationArea = document.getElementById("conversation-area");
     if (!conversationArea) return;
 
     conversationArea.innerHTML = "";

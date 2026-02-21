@@ -31,13 +31,13 @@
  */
 
 /** @type {string} */
-var STORAGE_PREFERENCES_DIR = "preferences";
+const STORAGE_PREFERENCES_DIR = "preferences";
 
 /** @type {string} */
-var STORAGE_CONVERSATIONS_DIR = "conversations";
+const STORAGE_CONVERSATIONS_DIR = "conversations";
 
 /** @type {string} */
-var STORAGE_IMAGES_DIR = "images";
+const STORAGE_IMAGES_DIR = "images";
 
 /**
  * Gets the OPFS root directory handle
@@ -69,10 +69,10 @@ async function ensureDirectory(parentDir, dirName) {
  */
 async function savePreference(key, value) {
     try {
-        var root = await getOPFSHandle();
-        var prefsDir = await ensureDirectory(root, STORAGE_PREFERENCES_DIR);
-        var fileHandle = await prefsDir.getFileHandle(key, { create: true });
-        var writable = await fileHandle.createWritable();
+        const root = await getOPFSHandle();
+        const prefsDir = await ensureDirectory(root, STORAGE_PREFERENCES_DIR);
+        const fileHandle = await prefsDir.getFileHandle(key, { create: true });
+        const writable = await fileHandle.createWritable();
         await writable.write(value);
         await writable.close();
     } catch (e) {
@@ -88,11 +88,11 @@ async function savePreference(key, value) {
  */
 async function getPreference(key, defaultValue) {
     try {
-        var root = await getOPFSHandle();
-        var prefsDir = await ensureDirectory(root, STORAGE_PREFERENCES_DIR);
-        var fileHandle = await prefsDir.getFileHandle(key);
-        var file = await fileHandle.getFile();
-        var content = await file.text();
+        const root = await getOPFSHandle();
+        const prefsDir = await ensureDirectory(root, STORAGE_PREFERENCES_DIR);
+        const fileHandle = await prefsDir.getFileHandle(key);
+        const file = await fileHandle.getFile();
+        const content = await file.text();
         if (content && content.trim().length > 0) {
             return content.trim();
         }
@@ -108,11 +108,11 @@ async function getPreference(key, defaultValue) {
  */
 async function listPreferences() {
     try {
-        var root = await getOPFSHandle();
-        var prefsDir = await ensureDirectory(root, STORAGE_PREFERENCES_DIR);
+        const root = await getOPFSHandle();
+        const prefsDir = await ensureDirectory(root, STORAGE_PREFERENCES_DIR);
         /** @type {Array<string>} */
-        var keys = [];
-        for await (var entry of prefsDir.values()) {
+        const keys = [];
+        for await (const entry of prefsDir.values()) {
             if (entry.kind === "file") {
                 keys.push(entry.name);
             }
@@ -130,8 +130,8 @@ async function listPreferences() {
  */
 async function deletePreference(key) {
     try {
-        var root = await getOPFSHandle();
-        var prefsDir = await ensureDirectory(root, STORAGE_PREFERENCES_DIR);
+        const root = await getOPFSHandle();
+        const prefsDir = await ensureDirectory(root, STORAGE_PREFERENCES_DIR);
         await prefsDir.removeEntry(key);
     } catch (e) {
         console.error("Error deleting preference:", e);
@@ -144,9 +144,9 @@ async function deletePreference(key) {
  */
 async function clearAllPreferences() {
     try {
-        var root = await getOPFSHandle();
-        var prefsDir = await ensureDirectory(root, STORAGE_PREFERENCES_DIR);
-        for await (var entry of prefsDir.values()) {
+        const root = await getOPFSHandle();
+        const prefsDir = await ensureDirectory(root, STORAGE_PREFERENCES_DIR);
+        for await (const entry of prefsDir.values()) {
             await prefsDir.removeEntry(entry.name, { recursive: true });
         }
     } catch (e) {
@@ -159,11 +159,11 @@ async function clearAllPreferences() {
  * @returns {Promise<number>} Epoch timestamp for the conversation
  */
 async function createConversation() {
-    var timestamp = Math.floor(Date.now() / 1000);
+    const timestamp = Math.floor(Date.now() / 1000);
     try {
-        var root = await getOPFSHandle();
-        var convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
-        var convDir = await ensureDirectory(convsDir, String(timestamp));
+        const root = await getOPFSHandle();
+        const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
+        const convDir = await ensureDirectory(convsDir, String(timestamp));
         await ensureDirectory(convDir, STORAGE_IMAGES_DIR);
         return timestamp;
     } catch (e) {
@@ -178,13 +178,13 @@ async function createConversation() {
  */
 async function listConversations() {
     try {
-        var root = await getOPFSHandle();
-        var convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
+        const root = await getOPFSHandle();
+        const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
         /** @type {Array<number>} */
-        var timestamps = [];
-        for await (var entry of convsDir.values()) {
+        const timestamps = [];
+        for await (const entry of convsDir.values()) {
             if (entry.kind === "directory") {
-                var num = parseInt(entry.name, 10);
+                const num = parseInt(entry.name, 10);
                 if (!isNaN(num)) {
                     timestamps.push(num);
                 }
@@ -204,12 +204,12 @@ async function listConversations() {
  */
 async function loadConversation(timestamp) {
     try {
-        var root = await getOPFSHandle();
-        var convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
-        var convDir = await convsDir.getDirectoryHandle(String(timestamp));
-        var fileHandle = await convDir.getFileHandle("conversation.json");
-        var file = await fileHandle.getFile();
-        var content = await file.text();
+        const root = await getOPFSHandle();
+        const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
+        const convDir = await convsDir.getDirectoryHandle(String(timestamp));
+        const fileHandle = await convDir.getFileHandle("conversation.json");
+        const file = await fileHandle.getFile();
+        const content = await file.text();
         return JSON.parse(content);
     } catch (e) {
         return null;
@@ -224,11 +224,11 @@ async function loadConversation(timestamp) {
  */
 async function saveConversation(timestamp, conversationData) {
     try {
-        var root = await getOPFSHandle();
-        var convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
-        var convDir = await ensureDirectory(convsDir, String(timestamp));
-        var fileHandle = await convDir.getFileHandle("conversation.json", { create: true });
-        var writable = await fileHandle.createWritable();
+        const root = await getOPFSHandle();
+        const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
+        const convDir = await ensureDirectory(convsDir, String(timestamp));
+        const fileHandle = await convDir.getFileHandle("conversation.json", { create: true });
+        const writable = await fileHandle.createWritable();
         await writable.write(JSON.stringify(conversationData, null, 2));
         await writable.close();
     } catch (e) {
@@ -243,8 +243,8 @@ async function saveConversation(timestamp, conversationData) {
  */
 async function deleteConversation(timestamp) {
     try {
-        var root = await getOPFSHandle();
-        var convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
+        const root = await getOPFSHandle();
+        const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
         await convsDir.removeEntry(String(timestamp), { recursive: true });
     } catch (e) {
         console.error("Error deleting conversation:", e);
@@ -259,31 +259,31 @@ async function deleteConversation(timestamp) {
  */
 async function saveImage(timestamp, imageData) {
     try {
-        var root = await getOPFSHandle();
-        var convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
-        var convDir = await convsDir.getDirectoryHandle(String(timestamp));
-        var imagesDir = await ensureDirectory(convDir, STORAGE_IMAGES_DIR);
+        const root = await getOPFSHandle();
+        const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
+        const convDir = await convsDir.getDirectoryHandle(String(timestamp));
+        const imagesDir = await ensureDirectory(convDir, STORAGE_IMAGES_DIR);
 
-        var nextIndex = await getNextImageIndex(imagesDir);
+        const nextIndex = await getNextImageIndex(imagesDir);
 
-        var base64Data = imageData;
+        let base64Data = imageData;
         if (imageData.startsWith("data:")) {
             /** @type {Array<string>} */
-            var parts = imageData.split(",");
+            const parts = imageData.split(",");
             if (parts.length > 1) {
                 base64Data = parts[1];
             }
         }
 
-        var binaryString = atob(base64Data);
+        const binaryString = atob(base64Data);
         /** @type {Uint8Array} */
-        var bytes = new Uint8Array(binaryString.length);
-        for (var i = 0; i < binaryString.length; i++) {
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
             bytes[i] = binaryString.charCodeAt(i);
         }
 
-        var fileHandle = await imagesDir.getFileHandle(String(nextIndex) + ".png", { create: true });
-        var writable = await fileHandle.createWritable();
+        const fileHandle = await imagesDir.getFileHandle(String(nextIndex) + ".png", { create: true });
+        const writable = await fileHandle.createWritable();
         await writable.write(bytes);
         await writable.close();
 
@@ -300,10 +300,10 @@ async function saveImage(timestamp, imageData) {
  * @returns {Promise<number>} Next image number
  */
 async function getNextImageIndex(imagesDir) {
-    var maxIndex = 0;
-    for await (var entry of imagesDir.values()) {
+    let maxIndex = 0;
+    for await (const entry of imagesDir.values()) {
         if (entry.kind === "file" && entry.name.endsWith(".png")) {
-            var num = parseInt(entry.name.replace(".png", ""), 10);
+            const num = parseInt(entry.name.replace(".png", ""), 10);
             if (!isNaN(num) && num > maxIndex) {
                 maxIndex = num;
             }
@@ -320,11 +320,11 @@ async function getNextImageIndex(imagesDir) {
  */
 async function getImage(timestamp, imageIndex) {
     try {
-        var root = await getOPFSHandle();
-        var convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
-        var convDir = await convsDir.getDirectoryHandle(String(timestamp));
-        var imagesDir = await ensureDirectory(convDir, STORAGE_IMAGES_DIR);
-        var fileHandle = await imagesDir.getFileHandle(String(imageIndex) + ".png");
+        const root = await getOPFSHandle();
+        const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
+        const convDir = await convsDir.getDirectoryHandle(String(timestamp));
+        const imagesDir = await ensureDirectory(convDir, STORAGE_IMAGES_DIR);
+        const fileHandle = await imagesDir.getFileHandle(String(imageIndex) + ".png");
         return await fileHandle.getFile();
     } catch (e) {
         return null;
@@ -339,10 +339,10 @@ async function getImage(timestamp, imageIndex) {
  */
 async function getImageDataURL(timestamp, imageIndex) {
     try {
-        var blob = await getImage(timestamp, imageIndex);
+        const blob = await getImage(timestamp, imageIndex);
         if (!blob) return null;
         return new Promise(function(resolve) {
-            var reader = new FileReader();
+            const reader = new FileReader();
             reader.onloadend = function() {
                 resolve(reader.result);
             };
@@ -363,11 +363,11 @@ async function getImageDataURL(timestamp, imageIndex) {
  */
 async function deleteImagesForConversation(timestamp) {
     try {
-        var root = await getOPFSHandle();
-        var convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
-        var convDir = await convsDir.getDirectoryHandle(String(timestamp));
-        var imagesDir = await ensureDirectory(convDir, STORAGE_IMAGES_DIR);
-        for await (var entry of imagesDir.values()) {
+        const root = await getOPFSHandle();
+        const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
+        const convDir = await convsDir.getDirectoryHandle(String(timestamp));
+        const imagesDir = await ensureDirectory(convDir, STORAGE_IMAGES_DIR);
+        for await (const entry of imagesDir.values()) {
             await imagesDir.removeEntry(entry.name);
         }
     } catch (e) {
@@ -383,11 +383,11 @@ async function deleteImagesForConversation(timestamp) {
  */
 async function saveSummary(timestamp, summaryData) {
     try {
-        var root = await getOPFSHandle();
-        var convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
-        var convDir = await convsDir.getDirectoryHandle(String(timestamp), { create: true });
-        var fileHandle = await convDir.getFileHandle("summary.json", { create: true });
-        var writable = await fileHandle.createWritable();
+        const root = await getOPFSHandle();
+        const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
+        const convDir = await convsDir.getDirectoryHandle(String(timestamp), { create: true });
+        const fileHandle = await convDir.getFileHandle("summary.json", { create: true });
+        const writable = await fileHandle.createWritable();
         await writable.write(JSON.stringify(summaryData, null, 2));
         await writable.close();
     } catch (e) {
@@ -402,12 +402,12 @@ async function saveSummary(timestamp, summaryData) {
  */
 async function loadSummary(timestamp) {
     try {
-        var root = await getOPFSHandle();
-        var convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
-        var convDir = await convsDir.getDirectoryHandle(String(timestamp));
-        var fileHandle = await convDir.getFileHandle("summary.json");
-        var file = await fileHandle.getFile();
-        var content = await file.text();
+        const root = await getOPFSHandle();
+        const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
+        const convDir = await convsDir.getDirectoryHandle(String(timestamp));
+        const fileHandle = await convDir.getFileHandle("summary.json");
+        const file = await fileHandle.getFile();
+        const content = await file.text();
         return JSON.parse(content);
     } catch (e) {
         return null;

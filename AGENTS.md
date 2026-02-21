@@ -49,14 +49,14 @@ function handleApiKeyEntry() { ... }
 ```javascript
 // GOOD
 /** @type {Array<{role: string, content: string}>} */
-var conversationHistory = [];
+const conversationHistory = [];
 
 // GOOD - from documented function
-var slots = generateTimeSlots(); // No @type needed
+const slots = generateTimeSlots(); // No @type needed
 
 // BAD - NO @type
-var selectedModel = null;
-var conversationHistory = [];
+let selectedModel = null;
+let conversationHistory = [];
 ```
 
 ### @typedef for Complex Types
@@ -97,7 +97,7 @@ openrouter.js  →  prompt.js  →  storage.js  →  ui.js  →  agent.js
 - **Spacing**: One space around operators, after commas, no trailing spaces
 - **Blank Lines**: One between functions, two between major sections
 - **Quotes**: Single quotes for strings, double for HTML attributes
-- **Declarations**: Use `var` (legacy codebase - maintain consistency)
+- **Declarations**: Use `let` or `const` for all variable declarations MANDATORY
 
 ## 6. Naming Conventions
 
@@ -164,6 +164,7 @@ Before submitting any code changes, verify:
 
 - [ ] Every function has JSDoc with @param, @returns
 - [ ] Every function that throws has @throws
+- [ ] All variables use let or const (no var declarations)
 - [ ] Every inline array `[]` has @type comment
 - [ ] Every inline object `{}` has @type comment
 - [ ] No single-letter variable names (except trivial loop counters)

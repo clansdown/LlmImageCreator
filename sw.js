@@ -4,16 +4,16 @@
  */
 
 /** @type {string} */
-var CACHE_NAME = 'llmimagecreator-v1';
+const CACHE_NAME = 'llmimagecreator-v1';
 
 /** @type {string} */
-var STATIC_CACHE = 'static-v1';
+const STATIC_CACHE = 'static-v1';
 
 /** @type {string} */
-var CDN_CACHE = 'cdn-v1';
+const CDN_CACHE = 'cdn-v1';
 
 /** @type {Array<string>} */
-var STATIC_ASSETS = [
+const STATIC_ASSETS = [
     '/',
     '/index.html',
     '/openrouter.js',
@@ -24,7 +24,7 @@ var STATIC_ASSETS = [
 ];
 
 /** @type {Array<string>} */
-var CDN_URLS = [
+const CDN_URLS = [
     'https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css',
     'https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js'
 ];
@@ -81,7 +81,7 @@ self.addEventListener('activate', function(event) {
  * @param {FetchEvent} event - Fetch event
  */
 self.addEventListener('fetch', function(event) {
-    var url = event.request.url;
+    const url = event.request.url;
 
     if (url.includes('openrouter.ai/api/')) {
         event.respondWith(
@@ -122,7 +122,7 @@ self.addEventListener('fetch', function(event) {
             }
             return fetch(event.request).then(function(networkResponse) {
                 if (networkResponse && networkResponse.type === 'basic') {
-                    var responseToCache = networkResponse.clone();
+                    const responseToCache = networkResponse.clone();
                     caches.open(STATIC_CACHE).then(function(cache) {
                         cache.put(event.request, responseToCache);
                     });
