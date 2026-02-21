@@ -178,91 +178,6 @@ function getUserPrompt() {
 }
 
 /**
- * Displays an image response in the conversation area
- * @param {Object} response - Chat completion response
- */
-function displayImageResponse(response) {
-    var conversationArea = document.getElementById("conversation-area");
-    if (!conversationArea) return;
-
-    var messageDiv = document.createElement("div");
-    messageDiv.className = "assistant-message mb-3 p-3 bg-light rounded";
-
-    var assistantLabel = document.createElement("div");
-    assistantLabel.className = "text-muted small mb-1";
-    assistantLabel.textContent = "Assistant";
-    messageDiv.appendChild(assistantLabel);
-
-    if (response.choices && response.choices.length > 0) {
-        var message = response.choices[0].message;
-
-        if (message.content) {
-            var contentDiv = document.createElement("div");
-            contentDiv.className = "mb-2";
-            contentDiv.textContent = message.content;
-            messageDiv.appendChild(contentDiv);
-        }
-
-        if (message.images && message.images.length > 0) {
-            message.images.forEach(function(imgObj, index) {
-                if (imgObj.image_url && imgObj.image_url.url) {
-                    var imgElement = document.createElement("img");
-                    imgElement.src = imgObj.image_url.url;
-                    imgElement.className = "img-fluid mb-2";
-                    imgElement.alt = "Generated image " + (index + 1);
-                    imgElement.style.maxWidth = "100%";
-                    imgElement.style.height = "auto";
-                    messageDiv.appendChild(imgElement);
-                }
-            });
-        }
-    }
-
-    conversationArea.appendChild(messageDiv);
-    conversationArea.scrollTop = conversationArea.scrollHeight;
-}
-
-/**
- * Adds a message to the conversation history in the left column
- * @param {string} role - Role (user or assistant)
- * @param {string} content - Message content
- * @param {Array<Object>} images - Optional array of generated images
- */
-function addToConversationHistory(role, content, images) {
-    var historyContainer = document.getElementById("conversation-history");
-    if (!historyContainer) return;
-
-    var messageDiv = document.createElement("div");
-    messageDiv.className = "message-item mb-2 p-2 rounded";
-
-    if (role === "user") {
-        messageDiv.classList.add("bg-primary", "text-white");
-    } else {
-        messageDiv.classList.add("bg-light");
-    }
-
-    var roleLabel = document.createElement("div");
-    roleLabel.className = "small fw-bold";
-    roleLabel.textContent = role === "user" ? "You" : "Assistant";
-    messageDiv.appendChild(roleLabel);
-
-    var contentDiv = document.createElement("div");
-    contentDiv.className = "small";
-    contentDiv.textContent = content;
-    messageDiv.appendChild(contentDiv);
-
-    if (images && images.length > 0) {
-        var imagesLabel = document.createElement("div");
-        imagesLabel.className = "small text-muted mt-1";
-        imagesLabel.textContent = "[Image generated]";
-        messageDiv.appendChild(imagesLabel);
-    }
-
-    historyContainer.appendChild(messageDiv);
-    historyContainer.scrollTop = historyContainer.scrollHeight;
-}
-
-/**
  * Clears the conversation history display
  */
 function clearConversationHistory() {
@@ -534,77 +449,83 @@ function renderMessageEntry(entry, index, conversationTimestamp) {
 
     var imagesContainer = clone.querySelector(".images-container");
     if (entry.response.imageFilenames && entry.response.imageFilenames.length > 0) {
-        entry.response.imageFilenames.forEach(function(filename, imgIndex) {
-            var resolution = entry.response.imageResolutions ? entry.response.imageResolutions[imgIndex] : "1K";
-            getImage(conversationTimestamp, parseInt(filename, 10)).then(function(blob) {
-                if (!blob) return;
-                
-                var template = document.getElementById("image-entry-template");
-                var imgTemplate = template.content.cloneNode(true);
-                var imgItemContainer = imgTemplate.querySelector(".image-item-container");
-                var imgWrapper = imgTemplate.querySelector(".image-wrapper");
-                var imgElement = imgTemplate.querySelector(".generated-image");
-                
-                var objectUrl = URL.createObjectURL(blob);
-                imgElement.onload = function() {
-                    URL.revokeObjectURL(objectUrl);
-                    imgWrapper.style.width = imgElement.width + "px";
-                    imgWrapper.style.height = imgElement.height + "px";
-                };
-                imgElement.src = objectUrl;
-                imgElement.style.maxWidth = "100%";
-                imgElement.style.height = "auto";
-                imgElement.dataset.conversationTimestamp = conversationTimestamp;
-                imgElement.dataset.entryIndex = index;
-                imgElement.dataset.imageIndex = imgIndex;
-                
-                var downloadBtn = imgTemplate.querySelector(".download-btn");
-                downloadBtn.className = "btn btn-sm btn-outline-light";
-                downloadBtn.dataset.conversationTimestamp = conversationTimestamp;
-                downloadBtn.dataset.entryIndex = index;
-                downloadBtn.dataset.imageIndex = imgIndex;
-                downloadBtn.dataset.filename = filename;
-                downloadBtn.addEventListener("click", function(e) {
-                    var ts = parseInt(conversationTimestamp, 10);
-                    var fn = filename;
-                    getImage(ts, parseInt(fn, 10)).then(function(imgBlob) {
-                        if (!imgBlob) return;
-                        var url = URL.createObjectURL(imgBlob);
-                        var a = document.createElement("a");
-                        a.href = url;
-                        a.download = "image_" + ts + "_" + fn + ".png";
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        setTimeout(function() {
-                            URL.revokeObjectURL(url);
-                        }, 100);
+        if (entry.response.imageFilenames[0] === "generating") {
+            var spinnerTemplate = document.getElementById("image-loading-template");
+            var spinnerClone = spinnerTemplate.content.cloneNode(true);
+            imagesContainer.appendChild(spinnerClone);
+        } else {
+            entry.response.imageFilenames.forEach(function(filename, imgIndex) {
+                var resolution = entry.response.imageResolutions ? entry.response.imageResolutions[imgIndex] : "1K";
+                getImage(conversationTimestamp, parseInt(filename, 10)).then(function(blob) {
+                    if (!blob) return;
+                    
+                    var template = document.getElementById("image-entry-template");
+                    var imgTemplate = template.content.cloneNode(true);
+                    var imgItemContainer = imgTemplate.querySelector(".image-item-container");
+                    var imgWrapper = imgTemplate.querySelector(".image-wrapper");
+                    var imgElement = imgTemplate.querySelector(".generated-image");
+                    
+                    var objectUrl = URL.createObjectURL(blob);
+                    imgElement.onload = function() {
+                        URL.revokeObjectURL(objectUrl);
+                        imgWrapper.style.width = imgElement.width + "px";
+                        imgWrapper.style.height = imgElement.height + "px";
+                    };
+                    imgElement.src = objectUrl;
+                    imgElement.style.maxWidth = "100%";
+                    imgElement.style.height = "auto";
+                    imgElement.dataset.conversationTimestamp = conversationTimestamp;
+                    imgElement.dataset.entryIndex = index;
+                    imgElement.dataset.imageIndex = imgIndex;
+                    
+                    var downloadBtn = imgTemplate.querySelector(".download-btn");
+                    downloadBtn.className = "btn btn-sm btn-outline-light";
+                    downloadBtn.dataset.conversationTimestamp = conversationTimestamp;
+                    downloadBtn.dataset.entryIndex = index;
+                    downloadBtn.dataset.imageIndex = imgIndex;
+                    downloadBtn.dataset.filename = filename;
+                    downloadBtn.addEventListener("click", function(e) {
+                        var ts = parseInt(conversationTimestamp, 10);
+                        var fn = filename;
+                        getImage(ts, parseInt(fn, 10)).then(function(imgBlob) {
+                            if (!imgBlob) return;
+                            var url = URL.createObjectURL(imgBlob);
+                            var a = document.createElement("a");
+                            a.href = url;
+                            a.download = "image_" + ts + "_" + fn + ".png";
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            setTimeout(function() {
+                                URL.revokeObjectURL(url);
+                            }, 100);
+                        });
                     });
+                    initTooltipForElement(downloadBtn);
+                    
+                    var regenerateNewBtn = imgTemplate.querySelector(".regenerate-new-btn");
+                    regenerateNewBtn.className = "btn btn-sm btn-outline-light";
+                    regenerateNewBtn.dataset.entryIndex = index;
+                    regenerateNewBtn.dataset.imageIndex = imgIndex;
+                    regenerateNewBtn.addEventListener("click", function() {
+                        handleRegenerateWithNewSeed(index, imgIndex);
+                    });
+                    initTooltipForElement(regenerateNewBtn);
+                    
+                    var regenerateLargerBtn = imgTemplate.querySelector(".regenerate-larger-btn");
+                    regenerateLargerBtn.className = "btn btn-sm btn-outline-light";
+                    regenerateLargerBtn.disabled = (resolution === "4K");
+                    regenerateLargerBtn.dataset.entryIndex = index;
+                    regenerateLargerBtn.dataset.imageIndex = imgIndex;
+                    regenerateLargerBtn.addEventListener("click", function() {
+                        handleRegenerateLarger(index, imgIndex);
+                    });
+                    initTooltipForElement(regenerateLargerBtn);
+                    
+                    imagesContainer.appendChild(imgItemContainer);
                 });
-                initTooltipForElement(downloadBtn);
-                
-                var regenerateNewBtn = imgTemplate.querySelector(".regenerate-new-btn");
-                regenerateNewBtn.className = "btn btn-sm btn-outline-light";
-                regenerateNewBtn.dataset.entryIndex = index;
-                regenerateNewBtn.dataset.imageIndex = imgIndex;
-                regenerateNewBtn.addEventListener("click", function() {
-                    handleRegenerateWithNewSeed(index, imgIndex);
-                });
-                initTooltipForElement(regenerateNewBtn);
-                
-                var regenerateLargerBtn = imgTemplate.querySelector(".regenerate-larger-btn");
-                regenerateLargerBtn.className = "btn btn-sm btn-outline-light";
-                regenerateLargerBtn.disabled = (resolution === "4K");
-                regenerateLargerBtn.dataset.entryIndex = index;
-                regenerateLargerBtn.dataset.imageIndex = imgIndex;
-                regenerateLargerBtn.addEventListener("click", function() {
-                    handleRegenerateLarger(index, imgIndex);
-                });
-                initTooltipForElement(regenerateLargerBtn);
-                
-                imagesContainer.appendChild(imgItemContainer);
             });
-        });
+        }
     }
 
     var llmTextBtn = clone.querySelector(".toggle-llm-text");

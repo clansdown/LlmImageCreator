@@ -482,21 +482,36 @@ function handleGenerate() {
         };
     }
 
+    var resolution = getResolution();
+    var aspectRatio = getAspectRatio();
+    /** @type {{imageSize: string, aspectRatio: string}} */
+    var imageConfig = {
+        imageSize: resolution,
+        aspectRatio: aspectRatio
+    };
+
+    conversationHistory.push({
+        role: "user",
+        content: prompt
+    });
+
     createConversation(currentConversation.timestamp).then(function() {
-        var resolution = getResolution();
-        var aspectRatio = getAspectRatio();
-        /** @type {{imageSize: string, aspectRatio: string}} */
-        var imageConfig = {
-            imageSize: resolution,
-            aspectRatio: aspectRatio
+        var placeholderEntry = {
+            message: {
+                systemPrompt: SYSTEM_PROMPT,
+                text: prompt,
+                seed: seed
+            },
+            response: {
+                text: null,
+                imageFilenames: ["generating"],
+                imageResolutions: [resolution],
+                responseData: null,
+                generationData: null
+            }
         };
-
-        conversationHistory.push({
-            role: "user",
-            content: prompt
-        });
-
-        addToConversationHistory("user", prompt);
+        currentConversation.entries.push(placeholderEntry);
+        renderConversation(currentConversation);
 
         return generateImage(apiKey, prompt, selectedModel, SYSTEM_PROMPT, conversationHistory, imageConfig, seed);
     }).then(function(response) {
@@ -510,17 +525,15 @@ function handleGenerate() {
                 content: responseText
             });
 
-            addToConversationHistory("assistant", responseText, images);
-            displayImageResponse(response);
-
             return saveImagesToConversation(currentConversation.timestamp, response).then(function(imageFilenames) {
+                var placeholderIndex = currentConversation.entries.length - 1;
                 var entry = createConversationEntry(prompt, seed, response, imageFilenames, imageConfig);
-                currentConversation.entries.push(entry);
+                currentConversation.entries[placeholderIndex] = entry;
 
                 return saveConversation(currentConversation.timestamp, currentConversation).then(function() {
                     renderConversation(currentConversation);
                     clearUserInput();
-                    
+
                     if (currentConversation.entries.length === 1) {
                         initializeConversationSummary(currentConversation.timestamp).then(function() {
                             updateConversationList();
@@ -539,7 +552,7 @@ function handleGenerate() {
                             updateConversationListDate(currentConversation.timestamp);
                         });
                     }
-                    
+
                     var generationId = response.id;
                     fetchGenerationDataWithRetry(apiKey, generationId, 5).then(function(generationData) {
                         if (generationData) {
@@ -553,6 +566,14 @@ function handleGenerate() {
     }).catch(function(error) {
         console.error("Error generating image:", error);
         displayError(error.message);
+        if (currentConversation && currentConversation.entries.length > 0) {
+            var lastEntry = currentConversation.entries[currentConversation.entries.length - 1];
+            if (lastEntry.response && lastEntry.response.imageFilenames &&
+                lastEntry.response.imageFilenames[0] === "generating") {
+                currentConversation.entries.pop();
+                renderConversation(currentConversation);
+            }
+        }
     }).finally(function() {
         fetchBalance(apiKey).then(function(balance) {
             updateBalanceDisplay(balance);
