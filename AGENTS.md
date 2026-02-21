@@ -152,6 +152,46 @@ function handleGenerate() { ... }
 - **Modals**: Bootstrap modals with `data-bs-dismiss`
 - **Accessibility**: Add `aria-label` for inputs/buttons without labels
 
+### DOM Insertions - MANDATORY
+
+All DOM insertions MUST use HTML templates with `cloneNode(true)` and follow this exact pattern:
+
+```html
+<!-- conversation-item-template: Template for displaying a single conversation in the sidebar -->
+<template id="conversation-item-template">
+    <div class="conversation-item">
+    [content goes here]
+    </div>
+</template>
+```
+
+```javascript
+// GOOD - Correct template usage pattern
+function addConversationItem(conversation) {
+    const template = document.getElementById('conversation-item-template');
+    const clone = template.content.cloneNode(true);
+    const container = clone.firstElementChild; // Capture BEFORE adding to DOM
+    container.textContent = conversation.title;
+    document.getElementById('conversation-list').appendChild(clone);
+    // Now 'container' is a reference to the element now in the DOM
+    container.addEventListener('click', () => handleConversationClick(conversation.id));
+}
+
+// BAD - Incorrect patterns
+function addConversationItem(conversation) {
+    const div = document.createElement('div'); // No template
+    div.textContent = conversation.title;
+    document.getElementById('conversation-list').appendChild(div);
+}
+```
+
+#### Template Requirements
+
+1. **Every template must have a comment** describing what the template is for (placed on the line above the `<template>` tag)
+2. **Templates must have a single interior div** - the template should contain exactly one root element (the `<div>` inside `<template>`)
+3. **Capture reference before DOM insertion** - Always capture `clone.firstElementChild` BEFORE calling `appendChild`, `insertBefore`, or any method that adds the clone to the document
+4. **Use the captured reference** for all subsequent DOM manipulations (adding event listeners, setting content, etc.)
+
 ## 11. Security & Best Practices
 
 - **Input Sanitization**: Trim/validate all user inputs
@@ -177,5 +217,9 @@ Before submitting any code changes, verify:
 - [ ] No abbreviations in names
 - [ ] Functions under 100 lines
 - [ ] All HTML IDs use kebab-case
+- [ ] All DOM insertions use HTML templates with cloneNode(true)
+- [ ] All templates have descriptive comments
+- [ ] All templates have a single interior div
+- [ ] References captured via clone.firstElementChild before DOM insertion
 
 By following these guidelines, agents maintain a clean, maintainable, and well-documented codebase.
