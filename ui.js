@@ -240,16 +240,18 @@ async function populateConversationList(timestamps) {
 
 /**
  * Sets the UI text for a conversation item in the sidebar
- * @param {DocumentFragment} clone - Cloned template node
+ * @param {HTMLElement} element - The conversation item DOM element
  * @param {ConversationSummary} summary - Summary data object
  * @param {number} timestamp - Conversation timestamp
  * @param {Conversation} conversation - Conversation object
  * @returns {void}
  */
-function setConversationItemUI(clone, summary, timestamp, conversation) {
-    const dateElement = clone.querySelector("#conversation-date");
-    const previewElement = clone.querySelector("#conversation-preview");
-    if (!dateElement || !previewElement) return;
+function setConversationItemUI(element, summary, timestamp, conversation) {
+    const dateElement = element.querySelector(".conversation-date");
+    const previewElement = element.querySelector(".conversation-preview");
+    if (!dateElement || !previewElement) {
+        console.log("There's a problem with the conversation UI items.", element, dateElement, previewElement);
+    };
 
     const title = (summary && summary.title && summary.title.trim().length > 0) ? summary.title : "New Conversation";
     dateElement.textContent = title;
@@ -280,9 +282,8 @@ function createConversationItem(timestamp, conversation) {
 
     item.dataset.timestamp = timestamp;
 
-    const date = new Date(timestamp * 1000);
-    const dateStr = date.toLocaleDateString() + " " + date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
-    const messageCount = conversation && conversation.entries ? conversation.entries.length : 0;
+    const conversationItem = clone.firstElementChild;
+    historyContainer.appendChild(clone);
 
     /** @type {ConversationSummary} */
     const defaultSummary = { title: "New Conversation", imageCount: 0, entryCount: 0, created: timestamp, updated: timestamp };
@@ -291,7 +292,7 @@ function createConversationItem(timestamp, conversation) {
         /** @type {ConversationSummary} */
         const summaryTyped = summary || defaultSummary;
 
-        setConversationItemUI(clone, summaryTyped, timestamp, conversation);
+        setConversationItemUI(conversationItem, summaryTyped, timestamp, conversation);
 
         const title = (summaryTyped && summaryTyped.title && summaryTyped.title.trim().length > 0) ? summaryTyped.title : "New Conversation";
         if (title === "New Conversation" && conversation.entries && conversation.entries.length > 0) {
@@ -300,7 +301,7 @@ function createConversationItem(timestamp, conversation) {
                 generateConversationTitle(firstPrompt).then(function(newTitle) {
                     if (newTitle && newTitle.trim().length > 0) {
                         updateConversationSummary(timestamp, newTitle).then(function(summaryData) {
-                            setConversationItemUI(clone, summaryData, timestamp, conversation);
+                            setConversationItemUI(conversationItem, summaryData, timestamp, conversation);
                         }).catch(function(e) {
                             console.error("Error saving new title for conversation", timestamp, ":", e);
                         });
@@ -312,14 +313,12 @@ function createConversationItem(timestamp, conversation) {
         }
     }).catch(function(e) {
         console.error("Failed to load summary for conversation", timestamp, e);
-        setConversationItemUI(clone, defaultSummary, timestamp, conversation);
+        setConversationItemUI(conversationItem, defaultSummary, timestamp, conversation);
     });
 
     item.addEventListener("click", function() {
         loadConversationIntoView(timestamp);
     });
-
-    historyContainer.appendChild(clone);
 }
 
 /**
