@@ -4,10 +4,10 @@
  */
 
 import { STATE } from './state.js';
-import { SYSTEM_PROMPT } from './prompt.js';
+import { SYSTEM_PROMPT, UPSCALE_PROMPT } from './prompt.js';
 import { savePreference, getPreference, createConversation, loadConversation, saveConversation, deletePreference, deleteImagesForConversation, getImage, saveImage, loadSummary, listConversations } from './storage.js';
 import { generateRandomSeed, generateConversationTitle, getApiKey, updateConversationSummary } from './util.js';
-import { generateImage } from './openrouter.js';
+import { generateImage, fetchVisionModels } from './openrouter.js';
 
 export { getApiKey, updateConversationSummary };
 
@@ -241,6 +241,115 @@ export function initTooltips() {
 export function initTooltipForElement(element) {
     if (element && element.getAttribute("data-bs-toggle") === "tooltip") {
         new bootstrap.Tooltip(element);
+    }
+}
+
+/**
+ * Gets the currently selected upscaling model from storage
+ * @returns {Promise<string|null>} Model ID or null
+ */
+export async function getUpscalingModel() {
+    return await getPreference("upscalingModel");
+}
+
+/**
+ * Initializes the settings dialog modal and populates the upscaling model dropdown
+ * @returns {Promise<void>}
+ */
+export async function initSettingsDialog() {
+    const template = document.getElementById("settings-dialog-template");
+    if (!template) return;
+
+    const clone = template.content.cloneNode(true);
+    document.body.appendChild(clone);
+
+    const settingsModal = document.getElementById("settings-modal");
+    if (!settingsModal) return;
+
+    settingsModal.instance = new bootstrap.Modal(settingsModal);
+
+    const apiKey = getApiKey();
+
+    if (apiKey && apiKey.length > 0) {
+        try {
+            const visionModels = await fetchVisionModels(apiKey);
+            populateUpscalingModelDropdown(visionModels);
+        } catch (error) {
+            console.error("Error fetching vision models:", error);
+        }
+    }
+
+    const upscalingModelSelect = document.getElementById("upscaling-model-select");
+    if (upscalingModelSelect) {
+        upscalingModelSelect.addEventListener("change", function(e) {
+            const modelId = e.target.value;
+            if (modelId) {
+                savePreference("upscalingModel", modelId);
+            }
+        });
+    }
+}
+
+/**
+ * Populates the upscaling model dropdown with available vision models
+ * @param {Array<Object>} visionModels - Array of vision model objects
+ */
+export function populateUpscalingModelDropdown(visionModels) {
+    const select = document.getElementById("upscaling-model-select");
+    if (!select) return;
+
+    select.innerHTML = "";
+    
+    const defaultOption = document.createElement("option");
+    defaultOption.value = "";
+    defaultOption.textContent = "Select a model for upscaling images to 4K";
+    defaultOption.disabled = true;
+    defaultOption.selected = true;
+    select.appendChild(defaultOption);
+
+    if (!visionModels || visionModels.length === 0) {
+        const emptyOption = document.createElement("option");
+        emptyOption.value = "";
+        emptyOption.textContent = "No vision-capable models available";
+        emptyOption.disabled = true;
+        select.appendChild(emptyOption);
+        return;
+    }
+
+    visionModels.forEach(function(model) {
+        const item = document.createElement("option");
+        item.value = model.id;
+        item.textContent = model.name;
+        select.appendChild(item);
+    });
+
+    getPreference("upscalingModel").then(function(savedModelId) {
+        if (savedModelId && savedModelId.length > 0) {
+            select.value = savedModelId;
+        }
+    });
+}
+
+/**
+ * Handles settings dialog open - loads saved preference
+ * @returns {Promise<void>}
+ */
+export async function handleSettingsOpen() {
+    const apiKey = getApiKey();
+    const select = document.getElementById("upscaling-model-select");
+    
+    if (apiKey && apiKey.length > 0 && select && select.options.length <= 2) {
+        try {
+            const visionModels = await fetchVisionModels(apiKey);
+            populateUpscalingModelDropdown(visionModels);
+        } catch (error) {
+            console.error("Error fetching vision models:", error);
+        }
+    }
+
+    const modelId = await getPreference("upscalingModel");
+    if (select && modelId) {
+        select.value = modelId;
     }
 }
 
@@ -492,72 +601,78 @@ export function renderMessageEntry(entry, index, conversationTimestamp) {
             const spinnerClone = spinnerTemplate.content.cloneNode(true);
             imagesContainer.appendChild(spinnerClone);
         } else {
-            entry.response.imageFilenames.forEach(function(filename, imgIndex) {
-                const resolution = entry.response.imageResolutions ? entry.response.imageResolutions[imgIndex] : "1K";
-                getImage(conversationTimestamp, parseInt(filename, 10)).then(function(blob) {
-                    if (!blob) return;
-                    
-                    const template = document.getElementById("image-entry-template");
-                    const imgTemplate = template.content.cloneNode(true);
-                    const imgItemContainer = imgTemplate.querySelector(".image-item-container");
-                    const imgWrapper = imgTemplate.querySelector(".image-wrapper");
-                    const imgElement = imgTemplate.querySelector(".generated-image");
-                    
-                    const objectUrl = URL.createObjectURL(blob);
-                    imgElement.onload = function() {
-                        URL.revokeObjectURL(objectUrl);
-                        imgWrapper.style.width = imgElement.width + "px";
-                        imgWrapper.style.height = imgElement.height + "px";
-                    };
-                    imgElement.src = objectUrl;
-                    imgElement.style.maxWidth = "100%";
-                    imgElement.style.height = "auto";
-                    imgElement.dataset.conversationTimestamp = conversationTimestamp;
-                    imgElement.dataset.entryIndex = index;
-                    imgElement.dataset.imageIndex = imgIndex;
-                    
-                    const downloadBtn = imgTemplate.querySelector(".download-btn");
-                    downloadBtn.dataset.conversationTimestamp = conversationTimestamp;
-                    downloadBtn.dataset.entryIndex = index;
-                    downloadBtn.dataset.imageIndex = imgIndex;
-                    downloadBtn.dataset.filename = filename;
-                    downloadBtn.addEventListener("click", function(e) {
-                        const ts = parseInt(conversationTimestamp, 10);
-                        const fn = filename;
-                        getImage(ts, parseInt(fn, 10)).then(function(imgBlob) {
-                            if (!imgBlob) return;
-                            const url = URL.createObjectURL(imgBlob);
-                            const a = document.createElement("a");
-                            a.href = url;
-                            a.download = "image_" + ts + "_" + fn + ".png";
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            setTimeout(function() {
-                                URL.revokeObjectURL(url);
-                            }, 100);
+            getUpscalingModel().then(function(upscalingModel) {
+                entry.response.imageFilenames.forEach(function(filename, imgIndex) {
+                    const resolution = entry.response.imageResolutions?.[imgIndex] ?? "1K";
+                    getImage(conversationTimestamp, parseInt(filename, 10)).then(function(blob) {
+                        if (!blob) return;
+                        
+                        const template = document.getElementById("image-entry-template");
+                        const imgTemplate = template.content.cloneNode(true);
+                        const imgItemContainer = imgTemplate.querySelector(".image-item-container");
+                        const imgWrapper = imgTemplate.querySelector(".image-wrapper");
+                        const imgElement = imgTemplate.querySelector(".generated-image");
+                        
+                        const objectUrl = URL.createObjectURL(blob);
+                        imgElement.onload = function() {
+                            URL.revokeObjectURL(objectUrl);
+                            imgWrapper.style.width = imgElement.width + "px";
+                            imgWrapper.style.height = imgElement.height + "px";
+                        };
+                        imgElement.src = objectUrl;
+                        imgElement.style.maxWidth = "100%";
+                        imgElement.style.height = "auto";
+                        imgElement.dataset.conversationTimestamp = conversationTimestamp;
+                        imgElement.dataset.entryIndex = index;
+                        imgElement.dataset.imageIndex = imgIndex;
+                        
+                        const downloadBtn = imgTemplate.querySelector(".download-btn");
+                        downloadBtn.dataset.conversationTimestamp = conversationTimestamp;
+                        downloadBtn.dataset.entryIndex = index;
+                        downloadBtn.dataset.imageIndex = imgIndex;
+                        downloadBtn.dataset.filename = filename;
+                        downloadBtn.addEventListener("click", function(e) {
+                            const ts = parseInt(conversationTimestamp, 10);
+                            const fn = filename;
+                            getImage(ts, parseInt(fn, 10)).then(function(imgBlob) {
+                                if (!imgBlob) return;
+                                const url = URL.createObjectURL(imgBlob);
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = "image_" + ts + "_" + fn + ".png";
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                                setTimeout(function() {
+                                    URL.revokeObjectURL(url);
+                                }, 100);
+                            });
                         });
+                        initTooltipForElement(downloadBtn);
+                        
+                        const regenerateNewBtn = imgTemplate.querySelector(".regenerate-new-btn");
+                        regenerateNewBtn.dataset.entryIndex = index;
+                        regenerateNewBtn.dataset.imageIndex = imgIndex;
+                        regenerateNewBtn.addEventListener("click", function() {
+                            handleRegenerateWithNewSeed(index, imgIndex);
+                        });
+                        initTooltipForElement(regenerateNewBtn);
+                        
+                        const regenerateLargerBtn = imgTemplate.querySelector(".regenerate-larger-btn");
+                        const isDisabled = (resolution === "4K") || !upscalingModel;
+                        regenerateLargerBtn.disabled = isDisabled;
+                        if (!upscalingModel) {
+                            regenerateLargerBtn.setAttribute("data-bs-title", "Select upscaling model in Settings first");
+                        }
+                        regenerateLargerBtn.dataset.entryIndex = index;
+                        regenerateLargerBtn.dataset.imageIndex = imgIndex;
+                        regenerateLargerBtn.addEventListener("click", function() {
+                            handleRegenerateLarger(index, imgIndex);
+                        });
+                        initTooltipForElement(regenerateLargerBtn);
+                        
+                        imagesContainer.appendChild(imgItemContainer);
                     });
-                    initTooltipForElement(downloadBtn);
-                    
-                    const regenerateNewBtn = imgTemplate.querySelector(".regenerate-new-btn");
-                    regenerateNewBtn.dataset.entryIndex = index;
-                    regenerateNewBtn.dataset.imageIndex = imgIndex;
-                    regenerateNewBtn.addEventListener("click", function() {
-                        handleRegenerateWithNewSeed(index, imgIndex);
-                    });
-                    initTooltipForElement(regenerateNewBtn);
-                    
-                    const regenerateLargerBtn = imgTemplate.querySelector(".regenerate-larger-btn");
-                    regenerateLargerBtn.disabled = (resolution === "4K");
-                    regenerateLargerBtn.dataset.entryIndex = index;
-                    regenerateLargerBtn.dataset.imageIndex = imgIndex;
-                    regenerateLargerBtn.addEventListener("click", function() {
-                        handleRegenerateLarger(index, imgIndex);
-                    });
-                    initTooltipForElement(regenerateLargerBtn);
-                    
-                    imagesContainer.appendChild(imgItemContainer);
                 });
             });
         }
@@ -670,7 +785,7 @@ export async function handleRegenerateWithNewSeed(entryIndex, imageIndex) {
     if (!apiKey) return;
 
     const aspectRatio = getAspectRatio();
-    const resolution = entry.response.imageResolutions ? entry.response.imageResolutions[imageIndex] : "1K";
+    const resolution = entry.response.imageResolutions?.[imageIndex] ?? "1K";
     
     const imageConfig = {
         imageSize: resolution,
@@ -690,6 +805,7 @@ export async function handleRegenerateWithNewSeed(entryIndex, imageIndex) {
             return saveImage(STATE.currentConversation.timestamp, urls[0]).then(function(newIndex) {
                 if (newIndex !== null) {
                     entry.response.imageFilenames.push(String(newIndex));
+                    entry.response.imageResolutions ??= [];
                     entry.response.imageResolutions.push(resolution);
                     saveConversation(STATE.currentConversation.timestamp, STATE.currentConversation);
                     renderConversation(STATE.currentConversation);
@@ -706,7 +822,7 @@ export async function handleRegenerateWithNewSeed(entryIndex, imageIndex) {
 }
 
 /**
- * Handles regenerate larger image with 4K resolution
+ * Handles regenerate larger image using upscaling model
  * @param {number} entryIndex - Index of the entry in conversation
  * @param {number} imageIndex - Index of the image within the entry
  * @returns {Promise<void>}
@@ -714,44 +830,73 @@ export async function handleRegenerateWithNewSeed(entryIndex, imageIndex) {
 export async function handleRegenerateLarger(entryIndex, imageIndex) {
     if (!STATE.currentConversation || !STATE.currentConversation.entries[entryIndex]) return;
     const entry = STATE.currentConversation.entries[entryIndex];
-    if (entry.response.imageResolutions[imageIndex] === "4K") return;
+    if (entry.response.imageResolutions?.[imageIndex] === "4K") return;
+
+    const upscalingModel = await getUpscalingModel();
+    if (!upscalingModel) {
+        displayError("Please select an upscaling model in Settings first");
+        return;
+    }
 
     const apiKey = getApiKey();
     if (!apiKey) return;
-    
-    const aspectRatio = getAspectRatio();
 
-    const imageConfig = {
-        imageSize: "4K",
-        aspectRatio: aspectRatio
-    };
-
-    const seed = entry.message.seed;
-    const prompt = entry.message.text;
+    const conversationTimestamp = STATE.currentConversation.timestamp;
+    const imageFilename = entry.response.imageFilenames[imageIndex];
 
     setLoadingState(true);
 
-    generateImage(apiKey, prompt, STATE.selectedModel, SYSTEM_PROMPT, STATE.conversationHistory, imageConfig, seed)
-        .then(function(response) {
-            const urls = extractImageUrls(response);
-            if (urls.length === 0) return Promise.resolve();
+    try {
+        const blob = await getImage(conversationTimestamp, parseInt(imageFilename, 10));
+        if (!blob) throw new Error("Failed to load image");
 
-            return saveImage(STATE.currentConversation.timestamp, urls[0]).then(function(newIndex) {
-                if (newIndex !== null) {
-                    entry.response.imageFilenames.push(String(newIndex));
-                    entry.response.imageResolutions.push("4K");
-                    saveConversation(STATE.currentConversation.timestamp, STATE.currentConversation);
-                    renderConversation(STATE.currentConversation);
+        const dataUrl = await new Promise(function(resolve, reject) {
+            const reader = new FileReader();
+            reader.onloadend = function() {
+                if (reader.result) {
+                    resolve(reader.result);
+                } else {
+                    reject(new Error("Failed to read image data"));
                 }
-            });
-        })
-        .catch(function(error) {
-            console.error("Error regenerating image:", error);
-            displayError(error.message);
-        })
-        .finally(function() {
-            setLoadingState(false);
+            };
+            reader.onerror = function() {
+                reject(new Error("Failed to read image data"));
+            };
+            reader.readAsDataURL(blob);
         });
+
+        const imageConfig = {
+            imageSize: "4K"
+        };
+
+        const response = await generateImage(
+            apiKey,
+            UPSCALE_PROMPT,
+            upscalingModel,
+            null,
+            [],
+            imageConfig,
+            null,
+            { imageData: dataUrl }
+        );
+
+        const urls = extractImageUrls(response);
+        if (urls.length === 0) throw new Error("No image returned from upscaling");
+
+        const newIndex = await saveImage(STATE.currentConversation.timestamp, urls[0]);
+        if (newIndex !== null) {
+            entry.response.imageFilenames.push(String(newIndex));
+            entry.response.imageResolutions ??= [];
+            entry.response.imageResolutions.push("4K");
+            saveConversation(STATE.currentConversation.timestamp, STATE.currentConversation);
+            renderConversation(STATE.currentConversation);
+        }
+    } catch (error) {
+        console.error("Error upscaling image:", error);
+        displayError(error.message);
+    } finally {
+        setLoadingState(false);
+    }
 }
 
 /**

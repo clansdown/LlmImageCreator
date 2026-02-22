@@ -145,7 +145,54 @@ function handleGenerate() { ... }
 - **User Feedback**: Display errors via `displayError()` in UI
 - **Logging**: Use `console.log` for debug only
 
-## 10. HTML/CSS & Bootstrap
+## 10. Null Safety Patterns
+
+Use modern JavaScript operators for clean null/undefined handling instead of explicit checks.
+
+### Optional Chaining (`?.`)
+
+**When to use**: Access properties or methods of objects that may be null/undefined
+**Pattern**: Use `?.` instead of explicit `if` checks or ternaries
+
+```javascript
+// GOOD - Optional chaining
+const resolution = entry.response.imageResolutions?.[index] ?? "1K";
+const apiKey = STATE.currentConversation?.apiKey;
+
+// BAD - Verbose checks
+const resolution = entry.response.imageResolutions ? entry.response.imageResolutions[index] : "1K";
+const apiKey = STATE.currentConversation && STATE.currentConversation.apiKey;
+```
+
+### Nullish Coalescing (`??`)
+
+**When to use**: Provide fallback value only when left side is `null` or `undefined`
+**Pattern**: `??` is safer than `||` (which also triggers on `false, 0, ""`)
+
+```javascript
+// GOOD - Nullish coalescing (only catches null/undefined)
+const resolution = entry.response.imageResolutions?.[index] ?? "1K";
+
+// AVOID - Logical OR (catches falsy values like 0, false, "")
+const resolution = entry.response.imageResolutions?.[index] || "1K";
+```
+
+### Initialization with `??=`
+
+**When to use**: Initialize arrays/objects only if they don't exist
+**Pattern**: `??=` is shorthand for `x = x ?? default`
+
+```javascript
+// GOOD - Conditionally initialize
+entry.response.imageResolutions ??= [];
+entry.response.imageResolutions.push(resolution);
+```
+
+### Key Rule
+
+**Prefer `?.` and `??` over explicit null checks**: These operators provide the same safety with cleaner, more readable code.
+
+## 11. HTML/CSS & Bootstrap
 
 - **Framework**: Bootstrap 5 via CDN
 - **Custom CSS**: Inline `<style>` in index.html for layout-specific needs
@@ -192,14 +239,14 @@ function addConversationItem(conversation) {
 3. **Capture reference before DOM insertion** - Always capture `clone.firstElementChild` BEFORE calling `appendChild`, `insertBefore`, or any method that adds the clone to the document
 4. **Use the captured reference** for all subsequent DOM manipulations (adding event listeners, setting content, etc.)
 
-## 11. Security & Best Practices
+## 12. Security & Best Practices
 
 - **Input Sanitization**: Trim/validate all user inputs
 - **XSS Prevention**: Use `textContent` not `innerHTML` with user data
 - **No Secrets**: Never hardcode API keys; use user input or storage
 - **PWA**: Service Worker handles offline caching
 
-## 12. Version Control
+## 13. Version Control
 
 - Agents must NEVER commit, push, or perform git operations
 - Only make code changes; user handles all version control

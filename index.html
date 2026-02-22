@@ -133,8 +133,9 @@
             </div>
 
             <div class="d-flex align-items-center">
-                <span id="balance-display" class="text-light me-2">Enter API key to view balance</span>
-                <button id="install-btn" class="btn btn-outline-light btn-sm" style="display: none;" data-bs-toggle="tooltip" data-bs-title="Install this app">Install App</button>
+                <button id="install-btn" class="btn btn-outline-light btn-sm me-2" style="display: none;" data-bs-toggle="tooltip" data-bs-title="Install this app">Install App</button>
+                <button id="settings-btn" class="btn btn-outline-light btn-sm me-2" data-bs-toggle="tooltip" data-bs-title="Settings">⚙️</button>
+                <span id="balance-display" class="text-light">Enter API key to view balance</span>
             </div>
         </div>
     </nav>
@@ -236,6 +237,32 @@
             <div class="image-wrapper d-flex justify-content-center align-items-center" style="min-width: 300px; min-height: 300px; background-color: #2d2d2d; border-radius: 8px;">
                 <div class="spinner-border text-light" role="status">
                     <span class="visually-hidden">Generating...</span>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- settings-dialog-template: Template for the settings configuration dialog -->
+    <template id="settings-dialog-template">
+        <div class="modal modal-lg fade" id="settings-modal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Settings</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="upscaling-model-select" class="form-label">Upscaling Model</label>
+                            <select id="upscaling-model-select" class="form-select" aria-label="Select upscaling model">
+                                <option value="" disabled selected>Select a model for upscaling images to 4K</option>
+                            </select>
+                            <div class="form-text">Select one to enable the "Regenerate in 4K" button.</div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
+                    </div>
                 </div>
             </div>
         </div>

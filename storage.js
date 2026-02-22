@@ -210,7 +210,17 @@ export async function loadConversation(timestamp) {
         const fileHandle = await convDir.getFileHandle("conversation.json");
         const file = await fileHandle.getFile();
         const content = await file.text();
-        return JSON.parse(content);
+        const conversation = JSON.parse(content);
+
+        if (conversation.entries) {
+            conversation.entries.forEach(function(entry) {
+                if (entry.response?.imageFilenames && !entry.response.imageResolutions) {
+                    entry.response.imageResolutions = entry.response.imageFilenames.map(function() { return "1K"; });
+                }
+            });
+        }
+
+        return conversation;
     } catch (e) {
         return null;
     }

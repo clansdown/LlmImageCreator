@@ -107,6 +107,7 @@ export function isOnline() {
  */
 export function init() {
     setupEventListeners();
+    ui.initSettingsDialog();
     loadPreferencesAndInitialize();
 
     listConversations().then(function(timestamps) {
@@ -166,6 +167,17 @@ export function setupEventListeners() {
     const newConversationBtn = document.getElementById("new-conversation-btn");
     if (newConversationBtn) {
         newConversationBtn.addEventListener("click", ui.handleNewConversation);
+    }
+
+    const settingsBtn = document.getElementById("settings-btn");
+    if (settingsBtn) {
+        settingsBtn.addEventListener("click", function() {
+            ui.handleSettingsOpen();
+            const settingsModal = document.getElementById("settings-modal");
+            if (settingsModal && settingsModal.instance) {
+                settingsModal.instance.show();
+            }
+        });
     }
 
     setupDropdownEventListeners();
