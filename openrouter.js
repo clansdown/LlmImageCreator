@@ -9,6 +9,83 @@ import { SYSTEM_PROMPT } from './prompt.js';
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 /**
+ * @typedef {Object} ChatCompletionResponse
+ * @property {string} id - Unique identifier for this chat completion
+ * @property {string} object - Object type ("chat.completion")
+ * @property {number} created - Unix timestamp of creation (seconds)
+ * @property {string} model - Model ID used for generation
+ * @property {string} [service_tier] - Service tier used ("auto" | "default" | "flex" | "scale" | "priority")
+ * @property {string} [system_fingerprint] - System configuration identifier
+ * @property {Array<Choice>} choices - Array of completion choices
+ * @property {UsageObject} [usage] - Token usage information
+ */
+
+/**
+ * @typedef {Object} Choice
+ * @property {Message} message - The assistant message
+ * @property {FinishReason} [finish_reason] - Reason for completion end
+ * @property {number} [index] - Choice index in response
+ * @property {Logprobs} [logprobs] - Log probability information
+ */
+
+/**
+ * @typedef {Object} Message
+ * @property {string} role - Message role ("assistant")
+ * @property {string} [content] - Text content (optional for image-only responses)
+ * @property {Array<ImageObject>} [images] - Generated images array
+ * @property {string} [refusal] - Refusal message if content was refused
+ * @property {Array<Object>} [tool_calls] - Tool call information (internal use)
+ */
+
+/**
+ * @typedef {Object} ImageObject
+ * @property {string} type - Content type ("image_url")
+ * @property {ImageUrl} image_url - Image URL object
+ */
+
+/**
+ * @typedef {Object} ImageUrl
+ * @property {string} url - Base64-encoded data URL (data:image/...)
+ */
+
+/**
+ * @typedef {Object} Logprobs
+ * @property {Array<TokenLogprob>} [content] - Content token log probabilities
+ * @property {Array<TokenLogprob>} [refusal] - Refusal token log probabilities
+ */
+
+/**
+ * @typedef {Object} TokenLogprob
+ * @property {string} token - The token text
+ * @property {Array<number>} [bytes] - UTF-8 bytes representation
+ * @property {number} logprob - Log probability (-9999.0 if unlikely)
+ * @property {Array<TopLogprob>} [top_logprobs] - Most likely tokens
+ */
+
+/**
+ * @typedef {Object} TopLogprob
+ * @property {string} token - The token text
+ * @property {Array<number>} [bytes] - UTF-8 bytes representation
+ * @property {number} logprob - Log probability
+ */
+
+/**
+ * @typedef {string} FinishReason
+ * @enum {string}
+ * Reason generation stopped
+ * Valid values: "stop", "length", "tool_calls", "content_filter", "function_call"
+ */
+
+/**
+ * @typedef {Object} UsageObject
+ * @property {number} prompt_tokens - Number of tokens in prompt
+ * @property {number} completion_tokens - Number of tokens in completion
+ * @property {number} total_tokens - Total number of tokens used
+ * @property {number} [prompt_cache_hit_tokens] - Cache hits (OpenRouter extension)
+ * @property {number} [prompt_cache_miss_tokens] - Cache misses (OpenRouter extension)
+ */
+
+/**
  * Fetches all available models from OpenRouter
  * @param {string} apiKey - OpenRouter API key
  * @returns {Promise<Array<Object>>} Array of model objects with image generation capability
@@ -123,7 +200,7 @@ export function fetchBalance(apiKey) {
  * @param {number} [seed] - Seed for reproducible generation
  * @param {Object} [imageInput] - Optional image input for vision models
  * @param {string} imageInput.imageData - Base64 data URL of the image
- * @returns {Promise<Object>} Chat completion response with images
+ * @returns {Promise<ChatCompletionResponse>} Chat completion response with images
  * @throws {Error} If API request fails
  */
 export async function generateImage(apiKey, prompt, model, systemPrompt, conversationHistory, imageConfig, seed, imageInput) {
