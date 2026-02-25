@@ -270,3 +270,68 @@ Before submitting any code changes, verify:
 - [ ] References captured via clone.firstElementChild before DOM insertion
 
 By following these guidelines, agents maintain a clean, maintainable, and well-documented codebase.
+
+## 14. TypeScript Usage
+
+### Strict Type Checking
+
+All TypeScript code uses `strict: true` mode. This includes:
+- `noImplicitAny` - No implicit any types
+- `strictNullChecks` - Strict null checking
+- `strictFunctionTypes` - Strict function type checking
+- Always strict mode enabled
+
+### The `any` Type
+
+**Strongly discouraged.** Only use `any` when absolutely necessary, and in those cases provide thorough documentation about what's contained.
+
+**WHEN to use `any`:**
+
+1. **Legacy library types** - When a library has poor or missing type definitions and you cannot create proper types
+   ```typescript
+   // Example: third-party library with no types
+   const result: any = legacyLibrary.getData(); // Returns complex structure we don't know
+   // Must document: result contains { data, metadata, timestamp }
+   ```
+
+2. **Bootstrap/Third-party runtime types** - When CDN-loaded types are imperfect but we need to interoperate
+   ```typescript
+   // Bootstrap type not perfect - need any for dynamic instance properties
+   const tooltipInstance: any = new bootstrap.Tooltip(element);
+   // Must document: tooltipInstance has { show(), hide(), dispose() } methods
+   ```
+
+3. **Temporary migration placeholder** - Only during active migration from JS to TS, not in final code
+   ```typescript
+   // TEMPORARY DURING MIGRATION - needs proper type after migration complete
+   const externalData: unknown = getExternalData();
+   // Must document: externalData expected structure
+   ```
+
+Use `unknown` instead of `any` where possible for better type safety.
+
+**WHEN NOT to use `any`:**
+
+- When you can define a proper type/interface/create type
+- When TypeScript can infer the type
+- When you can refine it to a more specific type
+- As a shortcut to avoid defining proper types
+
+**ALTERNATIVES to `any`:**
+
+1. Use `unknown` when the type is unknown but will be checked
+2. Define proper interfaces/types
+3. Use union types for multiple possibilities
+4. Use generics for type parameterization
+
+**Documentation Requirements for `any`:**
+
+If you must use `any`, you MUST add a comment immediately following explaining:
+
+```typescript
+const complexData: any = getComplexData();
+// COMPLEX DATA STRUCTURE: Contains { field1: string, field2: number[], field3: { nested: object } }
+// Reason: External API returns variable structure not properly typed yet
+```
+
+Without this documentation, use of `any` will be rejected in code review.

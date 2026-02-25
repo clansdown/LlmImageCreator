@@ -1,3 +1,6 @@
 
+# vite
+/node_modules/
+
 # Local generation statistics
 .commit/
