@@ -3,13 +3,13 @@
  * Handles all DOM updates and user interface interactions
  */
 
-import { STATE } from './state.js';
-import { SYSTEM_PROMPT, UPSCALE_PROMPT } from './prompt.js';
-import { savePreference, getPreference, createConversation, loadConversation, saveConversation, deletePreference, deleteImagesForConversation, getImage, saveImage, loadSummary, listConversations } from './storage.js';
-import { generateRandomSeed, generateConversationTitle, getApiKey, updateConversationSummary } from './util.js';
-import { generateImage, fetchVisionModels } from './openrouter.js';
-import type { Conversation, ConversationSummary, Message } from './types/state.js';
-import type { VisionModel, ChatCompletionResponse, ImageConfig } from './types/api.js';
+import { STATE } from './state';
+import { SYSTEM_PROMPT, UPSCALE_PROMPT } from './prompt';
+import { savePreference, getPreference, createConversation, loadConversation, saveConversation, deletePreference, deleteImagesForConversation, getImage, saveImage, loadSummary, listConversations } from './storage';
+import { generateRandomSeed, generateConversationTitle, getApiKey, updateConversationSummary } from './util';
+import { generateImage, fetchVisionModels } from './openrouter';
+import type { Conversation, ConversationSummary, Message } from './types/state';
+import type { VisionModel, ChatCompletionResponse, ImageConfig } from './types/api';
 
 export { getApiKey, updateConversationSummary };
 

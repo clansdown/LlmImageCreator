@@ -3,14 +3,14 @@
  * Handles initialization and user interaction flow
  */
 
-import { STATE } from './state.js';
-import { SYSTEM_PROMPT } from './prompt.js';
-import { fetchModels, fetchBalance, generateImage, getGenerationInfo } from './openrouter.js';
-import { savePreference, getPreference, listConversations, createConversation, loadConversation, saveConversation, deletePreference, getImage, saveImage, saveSummary, loadSummary } from './storage.js';
-import * as ui from './ui.js';
-import { generateRandomSeed, generateConversationTitle, updateConversationSummary } from './util.js';
-import type { Conversation, ConversationSummary, ConversationEntry, Message } from './types/state.js';
-import type { VisionModel, ChatCompletionResponse, ImageConfig, BalanceInfo, GenerationInfo } from './types/api.js';
+import { STATE } from './state';
+import { SYSTEM_PROMPT } from './prompt';
+import { fetchModels, fetchBalance, generateImage, getGenerationInfo } from './openrouter';
+import { savePreference, getPreference, listConversations, createConversation, loadConversation, saveConversation, deletePreference, getImage, saveImage, saveSummary, loadSummary } from './storage';
+import * as ui from './ui';
+import { generateRandomSeed, generateConversationTitle, updateConversationSummary } from './util';
+import type { Conversation, ConversationSummary, ConversationEntry, Message } from './types/state';
+import type { VisionModel, ChatCompletionResponse, ImageConfig, BalanceInfo, GenerationInfo } from './types/api';
 
 declare global {
     interface Window {

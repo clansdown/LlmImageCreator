@@ -3,7 +3,7 @@
  * Handles communication with OpenRouter for models, balance, and image generation
  */
 
-import { SYSTEM_PROMPT } from './prompt.js';
+import { SYSTEM_PROMPT } from './prompt';
 import type { 
     ChatCompletionResponse, 
     VisionModel, 
@@ -12,7 +12,7 @@ import type {
     ImageConfig, 
     ImageInput,
     Message 
-} from './types/api.js';
+} from './types/api';
 
 const OPENROUTER_BASE_URL: string = "https://openrouter.ai/api/v1";
 

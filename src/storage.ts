@@ -21,7 +21,7 @@
  *             └── ... (sequential numbering for all images in conversation)
  */
 
-import type { Conversation, ConversationSummary } from './types/state.js';
+import type { Conversation, ConversationSummary } from './types/state';
 
 const STORAGE_PREFERENCES_DIR: string = "preferences";
 const STORAGE_CONVERSATIONS_DIR: string = "conversations";

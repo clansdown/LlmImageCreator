@@ -1,11 +1,11 @@
 /**
  * Utility functions
- * Shared functions used by ui.js and agent.js
+ * Shared functions used by ui.ts and agent.ts
  */
 
-import { generateTitle } from './openrouter.js';
-import { TITLE_GENERATION_PROMPT } from './prompt.js';
-import { loadConversation, saveConversation, saveSummary, loadSummary } from './storage.js';
+import { generateTitle } from './openrouter';
+import { TITLE_GENERATION_PROMPT } from './prompt';
+import { loadConversation, saveConversation, saveSummary, loadSummary } from './storage';
 
 /**
  * Gets the API key from the input field
@@ -46,13 +46,13 @@ export async function generateConversationTitle(prompt: string): Promise<string>
  * Updates the conversation summary with current stats and optional new title
  * @param {number} timestamp - Conversation timestamp
  * @param {string} [title] - Optional new title
- * @returns {Promise<import('./types/state.js').ConversationSummary | null>} Updated summary data
+ * @returns {Promise<import('./types/state').ConversationSummary | null>} Updated summary data
  */
-export async function updateConversationSummary(timestamp: number, title?: string): Promise<import('./types/state.js').ConversationSummary | null> {
+export async function updateConversationSummary(timestamp: number, title?: string): Promise<import('./types/state').ConversationSummary | null> {
     const conversation = await loadConversation(timestamp);
     if (!conversation) return null;
     
-    const summary: import('./types/state.js').ConversationSummary = await loadSummary(timestamp) || {
+    const summary: import('./types/state').ConversationSummary = await loadSummary(timestamp) || {
         title: "New Conversation",
         imageCount: 0,
         entryCount: 0,
@@ -66,7 +66,7 @@ export async function updateConversationSummary(timestamp: number, title?: strin
         }
     });
     
-    const summaryData: import('./types/state.js').ConversationSummary = {
+    const summaryData: import('./types/state').ConversationSummary = {
         title: title || summary.title,
         imageCount: imageCount,
         entryCount: conversation.entries.length,

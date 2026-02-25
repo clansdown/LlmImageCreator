@@ -3,7 +3,7 @@
  * Contains all global state variables used across modules
  */
 
-import type { AppState } from './types/state.js';
+import type { AppState } from './types/state';
 
 /**
  * Global application state
