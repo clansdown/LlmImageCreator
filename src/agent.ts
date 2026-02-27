@@ -4,13 +4,19 @@
  */
 
 import { STATE } from './state';
-import { SYSTEM_PROMPT } from './prompt';
+import { SYSTEM_PROMPT, UPSCALE_PROMPT } from './prompt';
 import { fetchModels, fetchBalance, generateImage, getGenerationInfo } from './openrouter';
 import { savePreference, getPreference, listConversations, createConversation, loadConversation, saveConversation, deletePreference, getImage, saveImage, saveSummary, loadSummary } from './storage';
 import * as ui from './ui';
-import { generateRandomSeed, generateConversationTitle, updateConversationSummary } from './util';
+import { generateRandomSeed, generateConversationTitle, updateConversationSummary, getApiKey } from './util';
 import type { Conversation, ConversationSummary, ConversationEntry, Message } from './types/state';
-import type { VisionModel, ChatCompletionResponse, ImageConfig, BalanceInfo, GenerationInfo } from './types/api';
+import type { VisionModel, ChatCompletionResponse, ImageConfig, BalanceInfo, GenerationInfo, Message as ApiMessage } from './types/api';
+
+export { getUpscalingModel };
+
+async function getUpscalingModel(): Promise<string | null> {
+    return await getPreference("upscalingModel");
+}
 
 declare global {
     interface Window {
@@ -376,6 +382,130 @@ export async function initializeConversationSummary(timestamp: number): Promise<
 }
 
 /**
+ * Handles image generation with spinner display
+ * @param {string} apiKey - OpenRouter API key
+ * @param {Conversation} conversation - Conversation to add image to
+ * @param {ConversationEntry | null} targetEntry - Existing entry for regeneration, or null for new entry
+ * @param {string} prompt - User prompt
+ * @param {string} model - Model to use
+ * @param {string | null} systemPrompt - System prompt to use
+ * @param {Array<{role: string, content: string}>} conversationHistory - Conversation history
+ * @param {ImageConfig} imageConfig - Image configuration
+ * @param {number | undefined} seed - Random seed for generation
+ * @param {{imageData: string} | undefined} imageInput - Optional image input for upscaling
+ * @returns {Promise<void>}
+ */
+export async function handleImageGenerationWithSpinner(
+    apiKey: string,
+    conversation: Conversation,
+    targetEntry: ConversationEntry | null,
+    prompt: string,
+    model: string,
+    systemPrompt: string | null,
+    conversationHistory: Array<{role: string, content: string}>,
+    imageConfig: ImageConfig,
+    seed?: number,
+    imageInput?: {imageData: string}
+): Promise<void> {
+    const resolution = imageConfig.imageSize;
+    const isNewEntry = targetEntry === null;
+    let entryIndex: number;
+
+    if (isNewEntry) {
+        const placeholderEntry: ConversationEntry = {
+            message: {
+                systemPrompt: systemPrompt || "",
+                text: prompt,
+                seed: seed as number
+            },
+            response: {
+                text: null,
+                imageFilenames: ["generating"],
+                imageResolutions: [resolution as '1K' | '2K' | '4K'],
+                responseData: null,
+                generationData: null
+            }
+        };
+        conversation.entries.push(placeholderEntry);
+        entryIndex = conversation.entries.length - 1;
+    } else {
+        targetEntry.response.imageFilenames.push("generating");
+        targetEntry.response.imageResolutions ??= [];
+        targetEntry.response.imageResolutions.push(resolution as '1K' | '2K' | '4K');
+        entryIndex = conversation.entries.indexOf(targetEntry);
+    }
+
+    ui.renderConversation(conversation);
+
+    try {
+        const response = await generateImage(apiKey, prompt, model, systemPrompt, conversationHistory as ApiMessage[], imageConfig, seed, imageInput);
+
+        if (!response.choices || response.choices.length === 0) {
+            throw new Error("No response from API");
+        }
+
+        const urls = ui.extractImageUrls(response);
+        if (urls.length === 0) {
+            throw new Error("No images returned from API");
+        }
+
+        const imageFilenames: string[] = [];
+        for (const url of urls) {
+            const newIndex = await saveImage(conversation.timestamp, url);
+            if (newIndex !== null) {
+                imageFilenames.push(String(newIndex));
+            }
+        }
+
+        if (isNewEntry) {
+            const entry = createConversationEntry(prompt, seed as number, response, imageFilenames, imageConfig);
+            conversation.entries[entryIndex] = entry;
+        } else {
+            const placeholderIdx = targetEntry.response.imageFilenames.indexOf("generating");
+            if (placeholderIdx !== -1) {
+                targetEntry.response.imageFilenames[placeholderIdx] = imageFilenames[0];
+                for (let i = 1; i < imageFilenames.length; i++) {
+                    targetEntry.response.imageFilenames.push(imageFilenames[i]);
+                    targetEntry.response.imageResolutions.push(resolution as '1K' | '2K' | '4K');
+                }
+            }
+            targetEntry.response.responseData = response;
+        }
+
+        await saveConversation(conversation.timestamp, conversation);
+        ui.renderConversation(conversation);
+    } catch (error) {
+        console.error("Error generating image:", error);
+        ui.displayError((error as Error).message);
+
+        if (isNewEntry && conversation.entries.length > 0) {
+            const lastEntry = conversation.entries[conversation.entries.length - 1];
+            if (lastEntry.response.imageFilenames?.[0] === "generating") {
+                conversation.entries.pop();
+                ui.renderConversation(conversation);
+            }
+        } else if (!isNewEntry) {
+            const placeholderIdx = targetEntry.response.imageFilenames.indexOf("generating");
+            if (placeholderIdx !== -1) {
+                targetEntry.response.imageFilenames.splice(placeholderIdx, 1);
+                targetEntry.response.imageResolutions.splice(placeholderIdx, 1);
+            }
+            await saveConversation(conversation.timestamp, conversation);
+            ui.renderConversation(conversation);
+        }
+    } finally {
+        fetchBalance(apiKey).then(function(balance: BalanceInfo) {
+            ui.updateBalanceDisplay(balance);
+        }).catch(function() {
+            ui.updateBalanceDisplay(null, "Balance unavailable - check API key permissions");
+        });
+
+        STATE.isGenerating = false;
+        ui.setLoadingState(false);
+    }
+}
+
+/**
  * Handles the generate button click - initiates image generation
  */
 export function handleGenerate(): void {
@@ -403,9 +533,6 @@ export function handleGenerate(): void {
         return;
     }
 
-    STATE.isGenerating = true;
-    ui.setLoadingState(true);
-
     const seed = generateRandomSeed();
     const timestamp = Math.floor(Date.now() / 1000);
 
@@ -428,95 +555,163 @@ export function handleGenerate(): void {
         content: prompt
     });
 
+    STATE.isGenerating = true;
+    ui.setLoadingState(true);
+
     createConversation(STATE.currentConversation.timestamp).then(function() {
-        const placeholderEntry: ConversationEntry = {
-            message: {
-                systemPrompt: SYSTEM_PROMPT,
-                text: prompt,
-                seed: seed
-            },
-            response: {
-                text: null,
-                imageFilenames: ["generating"],
-                imageResolutions: [resolution as '1K' | '2K' | '4K'],
-                responseData: null,
-                generationData: null
-            }
-        };
-        STATE.currentConversation!.entries.push(placeholderEntry);
-        ui.renderConversation(STATE.currentConversation!);
+        return handleImageGenerationWithSpinner(
+            apiKey,
+            STATE.currentConversation!,
+            null,
+            prompt,
+            STATE.selectedModel!,
+            SYSTEM_PROMPT,
+            STATE.conversationHistory,
+            imageConfig,
+            seed,
+            undefined
+        );
+    }).then(function() {
+        ui.clearUserInput();
 
-        return generateImage(apiKey, prompt, STATE.selectedModel!, SYSTEM_PROMPT, STATE.conversationHistory, imageConfig, seed, undefined);
-    }).then(function(response: ChatCompletionResponse) {
-        if (response.choices && response.choices.length > 0) {
-            const message = response.choices[0].message;
-            const responseText = message.content || "Image generated";
-            const images = message.images || [];
-
-            STATE.conversationHistory.push({
-                role: "assistant",
-                content: responseText
+        if (STATE.currentConversation!.entries.length === 1) {
+            initializeConversationSummary(STATE.currentConversation!.timestamp).then(function() {
+                ui.updateConversationList();
             });
-
-            return saveImagesToConversation(STATE.currentConversation!.timestamp, response).then(function(imageFilenames: string[]) {
-                const placeholderIndex = STATE.currentConversation!.entries.length - 1;
-                const entry = createConversationEntry(prompt, seed, response, imageFilenames, imageConfig);
-                STATE.currentConversation!.entries[placeholderIndex] = entry;
-
-                return saveConversation(STATE.currentConversation!.timestamp, STATE.currentConversation!).then(function() {
-                    ui.renderConversation(STATE.currentConversation!);
-                    ui.clearUserInput();
-
-                    if (STATE.currentConversation!.entries.length === 1) {
-                        initializeConversationSummary(STATE.currentConversation!.timestamp).then(function() {
-                            ui.updateConversationList();
-                        });
-                        generateConversationTitle(prompt).then(function(title: string) {
-                            if (title && title !== "New Conversation") {
-                                updateConversationSummary(STATE.currentConversation!.timestamp, title).then(function() {
-                                    ui.updateConversationListItemTitle(STATE.currentConversation!.timestamp);
-                                });
-                            }
-                        }).catch(function() {
-                            console.log("Title generation failed, keeping placeholder");
-                        });
-                    } else {
-                        updateConversationSummary(STATE.currentConversation!.timestamp).then(function() {
-                            ui.updateConversationListDate(STATE.currentConversation!.timestamp);
-                        });
-                    }
-
-                    const generationId = response.id;
-                    fetchGenerationDataWithRetry(apiKey, generationId, 5).then(function(generationData: GenerationInfo | null) {
-                        if (generationData) {
-                            entry.response.generationData = generationData;
-                            saveConversation(STATE.currentConversation!.timestamp, STATE.currentConversation!);
-                        }
+            generateConversationTitle(prompt).then(function(title: string) {
+                if (title && title !== "New Conversation") {
+                    updateConversationSummary(STATE.currentConversation!.timestamp, title).then(function() {
+                        ui.updateConversationListItemTitle(STATE.currentConversation!.timestamp);
                     });
-                });
+                }
+            }).catch(function() {
+                console.log("Title generation failed, keeping placeholder");
+            });
+        } else {
+            updateConversationSummary(STATE.currentConversation!.timestamp).then(function() {
+                ui.updateConversationListDate(STATE.currentConversation!.timestamp);
             });
         }
-        return undefined;
-    }).catch(function(error: Error) {
-        console.error("Error generating image:", error);
-        ui.displayError(error.message);
-        if (STATE.currentConversation && STATE.currentConversation.entries.length > 0) {
-            const lastEntry = STATE.currentConversation.entries[STATE.currentConversation.entries.length - 1];
-            if (lastEntry.response && lastEntry.response.imageFilenames &&
-                lastEntry.response.imageFilenames[0] === "generating") {
-                STATE.currentConversation.entries.pop();
-                ui.renderConversation(STATE.currentConversation);
-            }
+
+        const lastEntry = STATE.currentConversation!.entries[STATE.currentConversation!.entries.length - 1];
+        if (lastEntry?.response?.responseData) {
+            const response = lastEntry.response.responseData as ChatCompletionResponse;
+            const generationId = response.id;
+            fetchGenerationDataWithRetry(apiKey, generationId, 5).then(function(generationData: GenerationInfo | null) {
+                if (generationData) {
+                    lastEntry.response.generationData = generationData;
+                    saveConversation(STATE.currentConversation!.timestamp, STATE.currentConversation!);
+                }
+            });
         }
-    }).finally(function() {
-        fetchBalance(apiKey).then(function(balance: BalanceInfo) {
-            ui.updateBalanceDisplay(balance);
-        }).catch(function(error: Error) {
-            console.error("Error fetching balance:", error);
-            ui.updateBalanceDisplay(null, "Balance unavailable - check API key permissions");
+    }).catch(function() {
+    });
+}
+
+/**
+ * Handles regenerating an image with a new seed
+ * @param {number} entryIndex - Index of the entry in conversation
+ * @param {number} imageIndex - Index of the image within the entry
+ */
+export async function handleRegenerateWithNewSeed(entryIndex: number, imageIndex: number): Promise<void> {
+    if (!STATE.currentConversation || !STATE.currentConversation.entries[entryIndex]) return;
+    const entry = STATE.currentConversation.entries[entryIndex];
+
+    const apiKey = ui.getApiKey();
+    if (!apiKey) return;
+
+    const aspectRatio = ui.getAspectRatio();
+    const resolution = entry.response.imageResolutions?.[imageIndex] ?? "1K";
+
+    const imageConfig: ImageConfig = {
+        imageSize: resolution as ImageConfig['imageSize'],
+        aspectRatio: aspectRatio as ImageConfig['aspectRatio']
+    };
+
+    const newSeed = generateRandomSeed();
+    const prompt = entry.message.text;
+
+    STATE.isGenerating = true;
+    ui.setLoadingState(true);
+
+    await handleImageGenerationWithSpinner(
+        apiKey,
+        STATE.currentConversation,
+        entry,
+        prompt,
+        STATE.selectedModel || "",
+        entry.message.systemPrompt || null,
+        [],
+        imageConfig,
+        newSeed,
+        undefined
+    );
+}
+
+/**
+ * Handles regenerating an image at 4K resolution using upscaling
+ * @param {number} entryIndex - Index of the entry in conversation
+ * @param {number} imageIndex - Index of the image within the entry
+ */
+export async function handleRegenerateLarger(entryIndex: number, imageIndex: number): Promise<void> {
+    if (!STATE.currentConversation || !STATE.currentConversation.entries[entryIndex]) return;
+    const entry = STATE.currentConversation.entries[entryIndex];
+    if (entry.response.imageResolutions?.[imageIndex] === "4K") return;
+
+    const upscalingModel = await ui.getUpscalingModel();
+    if (!upscalingModel) {
+        ui.displayError("Please select an upscaling model in Settings first");
+        return;
+    }
+
+    const apiKey = ui.getApiKey();
+    if (!apiKey) return;
+
+    const conversationTimestamp = STATE.currentConversation.timestamp;
+    const imageFilename = entry.response.imageFilenames[imageIndex];
+
+    STATE.isGenerating = true;
+    ui.setLoadingState(true);
+
+    try {
+        const blob = await getImage(conversationTimestamp, parseInt(imageFilename, 10));
+        if (!blob) throw new Error("Failed to load image");
+
+        const dataUrl = await new Promise<string>(function(resolve, reject) {
+            const reader = new FileReader();
+            reader.onloadend = function() {
+                if (reader.result) {
+                    resolve(reader.result as string);
+                } else {
+                    reject(new Error("Failed to read image data"));
+                }
+            };
+            reader.onerror = function() {
+                reject(new Error("Failed to read image data"));
+            };
+            reader.readAsDataURL(blob);
         });
 
+        const imageConfig: ImageConfig = {
+            imageSize: "4K"
+        };
+
+        await handleImageGenerationWithSpinner(
+            apiKey,
+            STATE.currentConversation,
+            entry,
+            UPSCALE_PROMPT,
+            upscalingModel,
+            null,
+            [],
+            imageConfig,
+            undefined,
+            { imageData: dataUrl }
+        );
+    } catch (error) {
+        console.error("Error upscaling image:", error);
+        ui.displayError((error as Error).message);
         STATE.isGenerating = false;
         ui.setLoadingState(false);
-    });
+    }
 }

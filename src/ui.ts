@@ -4,14 +4,14 @@
  */
 
 import { STATE } from './state';
-import { SYSTEM_PROMPT, UPSCALE_PROMPT } from './prompt';
-import { savePreference, getPreference, createConversation, loadConversation, saveConversation, deletePreference, deleteImagesForConversation, getImage, saveImage, loadSummary, listConversations } from './storage';
-import { generateRandomSeed, generateConversationTitle, getApiKey, updateConversationSummary } from './util';
-import { generateImage, fetchVisionModels } from './openrouter';
-import type { Conversation, ConversationSummary, Message } from './types/state';
-import type { VisionModel, ChatCompletionResponse, ImageConfig } from './types/api';
+import { savePreference, getPreference, loadConversation, getImage, loadSummary, listConversations } from './storage';
+import { generateConversationTitle, getApiKey, updateConversationSummary } from './util';
+import { fetchVisionModels } from './openrouter';
+import { handleRegenerateWithNewSeed, handleRegenerateLarger, getUpscalingModel } from './agent';
+import type { Conversation, ConversationSummary } from './types/state';
+import type { VisionModel, ChatCompletionResponse } from './types/api';
 
-export { getApiKey, updateConversationSummary };
+export { getApiKey, updateConversationSummary, getUpscalingModel, handleRegenerateWithNewSeed, handleRegenerateLarger };
 
 /**
  * Populates the model dropdown with available image generation models
@@ -226,14 +226,6 @@ export function initTooltipForElement(element: HTMLElement): void {
     if (element && element.getAttribute("data-bs-toggle") === "tooltip") {
         new bootstrap.Tooltip(element);
     }
-}
-
-/**
- * Gets the currently selected upscaling model from storage
- * @returns {Promise<string | null>} Model ID or null
- */
-export async function getUpscalingModel(): Promise<string | null> {
-    return await getPreference("upscalingModel");
 }
 
 /**
@@ -569,129 +561,6 @@ export function extractImageUrls(response: ChatCompletionResponse): string[] {
         }
     }
     return urls;
-}
-
-/**
- * Regenerates image with a new random seed
- * @param {number} entryIndex - Index of the entry in conversation
- * @param {number} imageIndex - Index of the image within the entry
- */
-export async function handleRegenerateWithNewSeed(entryIndex: number, imageIndex: number): Promise<void> {
-    if (!STATE.currentConversation || !STATE.currentConversation.entries[entryIndex]) return;
-    const entry = STATE.currentConversation.entries[entryIndex];
-    
-    const apiKey = getApiKey();
-    if (!apiKey) return;
-
-    const aspectRatio = getAspectRatio();
-    const resolution = entry.response.imageResolutions?.[imageIndex] ?? "1K";
-    
-    const imageConfig: ImageConfig = {
-        imageSize: resolution,
-        aspectRatio: aspectRatio as ImageConfig['aspectRatio']
-    };
-    
-    const newSeed = generateRandomSeed();
-    const prompt = entry.message.text;
-    
-    setLoadingState(true);
-    
-    try {
-        const response = await generateImage(apiKey, prompt, STATE.selectedModel, SYSTEM_PROMPT, STATE.conversationHistory, imageConfig, newSeed, undefined);
-        const urls = extractImageUrls(response);
-        if (urls.length === 0) return;
-        
-        const newIndex = await saveImage(STATE.currentConversation.timestamp, urls[0]);
-        if (newIndex !== null) {
-            entry.response.imageFilenames.push(String(newIndex));
-            entry.response.imageResolutions ??= [];
-            entry.response.imageResolutions.push(resolution);
-            saveConversation(STATE.currentConversation.timestamp, STATE.currentConversation);
-            renderConversation(STATE.currentConversation);
-        }
-    } catch (error) {
-        console.error("Error regenerating image:", error);
-        displayError((error as Error).message);
-    } finally {
-        setLoadingState(false);
-    }
-}
-
-/**
- * Handles regenerate larger image using upscaling model
- * @param {number} entryIndex - Index of the entry in conversation
- * @param {number} imageIndex - Index of the image within the entry
- */
-export async function handleRegenerateLarger(entryIndex: number, imageIndex: number): Promise<void> {
-    if (!STATE.currentConversation || !STATE.currentConversation.entries[entryIndex]) return;
-    const entry = STATE.currentConversation.entries[entryIndex];
-    if (entry.response.imageResolutions?.[imageIndex] === "4K") return;
-
-    const upscalingModel = await getUpscalingModel();
-    if (!upscalingModel) {
-        displayError("Please select an upscaling model in Settings first");
-        return;
-    }
-
-    const apiKey = getApiKey();
-    if (!apiKey) return;
-
-    const conversationTimestamp = STATE.currentConversation.timestamp;
-    const imageFilename = entry.response.imageFilenames[imageIndex];
-
-    setLoadingState(true);
-
-    try {
-        const blob = await getImage(conversationTimestamp, parseInt(imageFilename, 10));
-        if (!blob) throw new Error("Failed to load image");
-
-        const dataUrl = await new Promise<string>(function(resolve, reject) {
-            const reader = new FileReader();
-            reader.onloadend = function() {
-                if (reader.result) {
-                    resolve(reader.result as string);
-                } else {
-                    reject(new Error("Failed to read image data"));
-                }
-            };
-            reader.onerror = function() {
-                reject(new Error("Failed to read image data"));
-            };
-            reader.readAsDataURL(blob);
-        });
-
-        const imageConfig: ImageConfig = {
-            imageSize: "4K"
-        };
-
-        const response = await generateImage(
-            apiKey,
-            UPSCALE_PROMPT,
-            upscalingModel,
-            null,
-            [],
-            imageConfig,
-            undefined,
-            { imageData: dataUrl }
-        );
-
-        const urls = extractImageUrls(response);
-        if (urls.length === 0) throw new Error("No image returned from upscaling");
-
-        const newIndex = await saveImage(STATE.currentConversation.timestamp, urls[0]);
-        if (newIndex !== null) {
-            entry.response.imageFilenames.push(String(newIndex));
-            entry.response.imageResolutions ??= [];
-            entry.response.imageResolutions.push("4K");
-            saveConversation(STATE.currentConversation.timestamp, STATE.currentConversation);
-            renderConversation(STATE.currentConversation);
-        }
-    } catch (error) {
-        console.error("Error upscaling image:", error);
-        displayError((error as Error).message);
-    } finally {
-        setLoadingState(false);
-    }
 }
 
 /**
