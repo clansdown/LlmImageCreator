@@ -713,6 +713,102 @@ export function clearUserInput(): void {
 }
 
 /**
+ * Renders a range of images from imageFilenames
+ * @param {Conversation['entries'][0]} entry - Conversation entry containing images
+ * @param {number} conversationTimestamp - Conversation timestamp for image loading
+ * @param {number} startIndex - Starting index (inclusive)
+ * @param {number} endIndex - Ending index (exclusive)
+ * @param {HTMLElement} imagesContainer - Container to append images to
+ * @param {number} entryIndex - Entry index in conversation
+ */
+function renderExistingImages(
+    entry: Conversation['entries'][0],
+    conversationTimestamp: number,
+    startIndex: number,
+    endIndex: number,
+    imagesContainer: HTMLElement,
+    entryIndex: number
+): void {
+    if (startIndex >= endIndex) return;
+
+    getUpscalingModel().then(function(upscalingModel: string | null) {
+        for (let imgIndex = startIndex; imgIndex < endIndex; imgIndex++) {
+            const filename = entry.response.imageFilenames[imgIndex];
+            if (filename === "generating") continue;
+
+            const resolution = entry.response.imageResolutions?.[imgIndex] ?? "1K";
+
+            getImage(conversationTimestamp, parseInt(filename, 10)).then(function(blob: Blob | null) {
+                if (!blob) return;
+
+                const template = document.getElementById("image-entry-template");
+                if (!template) return;
+                const imgTemplate = template.content.cloneNode(true);
+                const imgItemContainer = imgTemplate.querySelector(".image-item-container") as HTMLElement;
+                const imgElement = imgTemplate.querySelector(".generated-image") as HTMLImageElement;
+
+                const objectUrl = URL.createObjectURL(blob);
+                imgElement.onload = function() {
+                    URL.revokeObjectURL(objectUrl);
+                };
+                imgElement.src = objectUrl;
+                imgElement.style.maxWidth = "100%";
+                imgElement.dataset.conversationTimestamp = String(conversationTimestamp);
+                imgElement.dataset.entryIndex = String(entryIndex);
+                imgElement.dataset.imageIndex = String(imgIndex);
+
+                const downloadBtn = imgTemplate.querySelector(".download-btn") as HTMLButtonElement;
+                downloadBtn.dataset.conversationTimestamp = String(conversationTimestamp);
+                downloadBtn.dataset.entryIndex = String(entryIndex);
+                downloadBtn.dataset.imageIndex = String(imgIndex);
+                downloadBtn.dataset.filename = filename;
+                downloadBtn.addEventListener("click", function() {
+                    const ts = parseInt(String(conversationTimestamp), 10);
+                    const fn = filename;
+                    getImage(ts, parseInt(fn, 10)).then(function(imgBlob: Blob | null) {
+                        if (!imgBlob) return;
+                        const url = URL.createObjectURL(imgBlob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = "image_" + ts + "_" + fn + ".png";
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        setTimeout(function() {
+                            URL.revokeObjectURL(url);
+                        }, 100);
+                    });
+                });
+                initTooltipForElement(downloadBtn);
+
+                const regenerateNewBtn = imgTemplate.querySelector(".regenerate-new-btn") as HTMLButtonElement;
+                regenerateNewBtn.dataset.entryIndex = String(entryIndex);
+                regenerateNewBtn.dataset.imageIndex = String(imgIndex);
+                regenerateNewBtn.addEventListener("click", function() {
+                    handleRegenerateWithNewSeed(entryIndex, imgIndex);
+                });
+                initTooltipForElement(regenerateNewBtn);
+
+                const regenerateLargerBtn = imgTemplate.querySelector(".regenerate-larger-btn") as HTMLButtonElement;
+                const isDisabled = (resolution === "4K") || !upscalingModel;
+                regenerateLargerBtn.disabled = isDisabled;
+                if (!upscalingModel) {
+                    regenerateLargerBtn.setAttribute("data-bs-title", "Select upscaling model in Settings first");
+                }
+                regenerateLargerBtn.dataset.entryIndex = String(entryIndex);
+                regenerateLargerBtn.dataset.imageIndex = String(imgIndex);
+                regenerateLargerBtn.addEventListener("click", function() {
+                    handleRegenerateLarger(entryIndex, imgIndex);
+                });
+                initTooltipForElement(regenerateLargerBtn);
+
+                imagesContainer.appendChild(imgItemContainer);
+            });
+        }
+    });
+}
+
+/**
  * Renders a single conversation entry using the template
  * @param {Conversation['entries'][0]} entry - Conversation entry to render
  * @param {number} index - Entry index in conversation
@@ -732,88 +828,26 @@ export function renderMessageEntry(entry: Conversation['entries'][0], index: num
 
     const imagesContainer = clone.querySelector(".images-container") as HTMLElement;
     if (entry.response.imageFilenames && entry.response.imageFilenames.length > 0) {
-        if (entry.response.imageFilenames[0] === "generating") {
-            const spinnerTemplate = document.getElementById("image-loading-template");
-            if (spinnerTemplate) {
-                const spinnerClone = spinnerTemplate.content.cloneNode(true);
-                imagesContainer.appendChild(spinnerClone);
+        const hasGenerating = entry.response.imageFilenames.includes("generating");
+
+        if (hasGenerating) {
+            for (let imgIndex = 0; imgIndex < entry.response.imageFilenames.length; imgIndex++) {
+                const filename = entry.response.imageFilenames[imgIndex];
+                if (filename === "generating") {
+                    const spinnerTemplate = document.getElementById("image-loading-template");
+                    if (spinnerTemplate) {
+                        const spinnerClone = spinnerTemplate.content.cloneNode(true);
+                        imagesContainer.appendChild(spinnerClone);
+                    }
+                } else {
+                    const tempContainer = document.createElement("div");
+                    imagesContainer.appendChild(tempContainer);
+                    renderExistingImages(entry, conversationTimestamp, imgIndex, imgIndex + 1, tempContainer, index);
+                }
             }
+            messageEntry.scrollIntoView({ behavior: "smooth", block: "end" });
         } else {
-            getUpscalingModel().then(function(upscalingModel: string | null) {
-                entry.response.imageFilenames.forEach(function(filename: string, imgIndex: number) {
-                    const resolution = entry.response.imageResolutions?.[imgIndex] ?? "1K";
-                    getImage(conversationTimestamp, parseInt(filename, 10)).then(function(blob: Blob | null) {
-                        if (!blob) return;
-                        
-                        const template = document.getElementById("image-entry-template");
-                        if (!template) return;
-                        const imgTemplate = template.content.cloneNode(true);
-                        const imgItemContainer = imgTemplate.querySelector(".image-item-container") as HTMLElement;
-                        const imgWrapper = imgTemplate.querySelector(".image-wrapper") as HTMLElement;
-                        const imgElement = imgTemplate.querySelector(".generated-image") as HTMLImageElement;
-                        
-                        const objectUrl = URL.createObjectURL(blob);
-                        imgElement.onload = function() {
-                            URL.revokeObjectURL(objectUrl);
-                            imgWrapper.style.width = imgElement.width + "px";
-                            imgWrapper.style.height = imgElement.height + "px";
-                        };
-                        imgElement.src = objectUrl;
-                        imgElement.style.maxWidth = "100%";
-                        imgElement.style.height = "auto";
-                        imgElement.dataset.conversationTimestamp = String(conversationTimestamp);
-                        imgElement.dataset.entryIndex = String(index);
-                        imgElement.dataset.imageIndex = String(imgIndex);
-                        
-                        const downloadBtn = imgTemplate.querySelector(".download-btn") as HTMLButtonElement;
-                        downloadBtn.dataset.conversationTimestamp = String(conversationTimestamp);
-                        downloadBtn.dataset.entryIndex = String(index);
-                        downloadBtn.dataset.imageIndex = String(imgIndex);
-                        downloadBtn.dataset.filename = filename;
-                        downloadBtn.addEventListener("click", function() {
-                            const ts = parseInt(String(conversationTimestamp), 10);
-                            const fn = filename;
-                            getImage(ts, parseInt(fn, 10)).then(function(imgBlob: Blob | null) {
-                                if (!imgBlob) return;
-                                const url = URL.createObjectURL(imgBlob);
-                                const a = document.createElement("a");
-                                a.href = url;
-                                a.download = "image_" + ts + "_" + fn + ".png";
-                                document.body.appendChild(a);
-                                a.click();
-                                document.body.removeChild(a);
-                                setTimeout(function() {
-                                    URL.revokeObjectURL(url);
-                                }, 100);
-                            });
-                        });
-                        initTooltipForElement(downloadBtn);
-                        
-                        const regenerateNewBtn = imgTemplate.querySelector(".regenerate-new-btn") as HTMLButtonElement;
-                        regenerateNewBtn.dataset.entryIndex = String(index);
-                        regenerateNewBtn.dataset.imageIndex = String(imgIndex);
-                        regenerateNewBtn.addEventListener("click", function() {
-                            handleRegenerateWithNewSeed(index, imgIndex);
-                        });
-                        initTooltipForElement(regenerateNewBtn);
-                        
-                        const regenerateLargerBtn = imgTemplate.querySelector(".regenerate-larger-btn") as HTMLButtonElement;
-                        const isDisabled = (resolution === "4K") || !upscalingModel;
-                        regenerateLargerBtn.disabled = isDisabled;
-                        if (!upscalingModel) {
-                            regenerateLargerBtn.setAttribute("data-bs-title", "Select upscaling model in Settings first");
-                        }
-                        regenerateLargerBtn.dataset.entryIndex = String(index);
-                        regenerateLargerBtn.dataset.imageIndex = String(imgIndex);
-                        regenerateLargerBtn.addEventListener("click", function() {
-                            handleRegenerateLarger(index, imgIndex);
-                        });
-                        initTooltipForElement(regenerateLargerBtn);
-                        
-                        imagesContainer.appendChild(imgItemContainer);
-                    });
-                });
-            });
+            renderExistingImages(entry, conversationTimestamp, 0, entry.response.imageFilenames.length, imagesContainer, index);
         }
     }
 
