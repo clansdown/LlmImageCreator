@@ -83,6 +83,11 @@ self.addEventListener('activate', function(event) {
 self.addEventListener('fetch', function(event) {
     const url = event.request.url;
 
+    if (url.includes('/@/') || url.includes('/src/')) {
+        event.respondWith(fetch(event.request));
+        return;
+    }
+
     if (url.includes('openrouter.ai/api/')) {
         event.respondWith(
             fetch(event.request).catch(function() {
