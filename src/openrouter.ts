@@ -279,26 +279,29 @@ export async function generateImage(
             const text = await response.text();
             console.log("Error response body:", text);
 
-            let errorMessage = "Failed to generate image: " + response.status;
+            const errorInfo: { message: string; status?: number; code?: string; type?: string; rawResponse?: string } = {
+                message: "Failed to generate image: " + response.status
+            };
 
             try {
                 const errorData = JSON.parse(text);
                 console.log("Parsed error data:", errorData);
 
                 if (errorData.error && errorData.error.message) {
-                    errorMessage = errorData.error.message;
-                    if (errorData.error.code) {
-                        errorMessage += " (code: " + errorData.error.code + ")";
-                    }
-                    if (errorData.error.type) {
-                        errorMessage += " (type: " + errorData.error.type + ")";
-                    }
+                    errorInfo.message = errorData.error.message;
+                    errorInfo.code = errorData.error.code;
+                    errorInfo.type = errorData.error.type;
                 }
             } catch (e) {
-                errorMessage += " - " + text;
+                errorInfo.message += " - " + text;
             }
 
-            throw new Error(errorMessage);
+            errorInfo.status = response.status;
+            errorInfo.rawResponse = text;
+
+            const error = new Error(errorInfo.message);
+            (error as unknown as { info: typeof errorInfo }).info = errorInfo;
+            throw error;
         }
 
         const data = await response.json() as ChatCompletionResponse;

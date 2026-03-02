@@ -10,6 +10,7 @@ import type { AppState } from './types/state';
  */
 export const STATE: AppState = {
     selectedModel: null,
+    visionModels: [],
     currentConversation: null,
     conversationHistory: [],
     isGenerating: false,

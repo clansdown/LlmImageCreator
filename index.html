@@ -157,6 +157,9 @@
                         </div>
                     </div>
                 </div>
+                <!-- Error display container (non-scrollable) -->
+                <div id="error-container" style="min-height: 0;"></div>
+                <!-- Scrollable conversation area -->
                 <div id="conversation-area"></div>
             </div>
         </div>
@@ -178,7 +181,7 @@
             <div class="card bg-dark text-white border-secondary">
                 <div class="card-header user-instructions bg-secondary">
                     <div class="d-flex justify-content-between align-items-center">
-                        <strong>Your Instructions:</strong>
+                        <strong class="model-name-display">Your Instructions:</strong>
                         <button type="button" class="btn btn-sm btn-outline-light copy-to-textarea-btn" data-bs-toggle="tooltip" data-bs-title="Copy to textarea">
                             <span><b>⇑</b></span>
                         </button>
@@ -238,6 +241,26 @@
                 <div class="spinner-border text-light" role="status">
                     <span class="visually-hidden">Generating...</span>
                 </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- error-box-template: Template for error display -->
+    <template id="error-box-template">
+        <div class="alert alert-danger" role="alert" style="margin-bottom: 0.5rem;">
+            <div class="d-flex justify-content-between align-items-start">
+                <div class="error-content flex-grow-1">
+                    <strong class="error-title"></strong>
+                    <div class="error-message mb-2"></div>
+                    <!-- Details section, always visible (expanded by default) -->
+                    <div class="error-details" style="display: none;">
+                        <div class="error-status small"></div>
+                        <div class="error-code small"></div>
+                        <div class="error-type small"></div>
+                        <div class="error-raw small text-muted word-break"></div>
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white error-dismiss" aria-label="Close"></button>
             </div>
         </div>
     </template>

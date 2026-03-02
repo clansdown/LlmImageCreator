@@ -10,6 +10,7 @@ import { fetchVisionModels } from './openrouter';
 import { handleRegenerateWithNewSeed, handleRegenerateLarger, getUpscalingModel } from './agent';
 import type { Conversation, ConversationSummary } from './types/state';
 import type { VisionModel, ChatCompletionResponse } from './types/api';
+import type { ErrorInfo } from './types/error';
 
 export { getApiKey, updateConversationSummary, getUpscalingModel, handleRegenerateWithNewSeed, handleRegenerateLarger };
 
@@ -236,6 +237,7 @@ export async function initSettingsDialog(): Promise<void> {
     if (!template) return;
 
     const clone = template.content.cloneNode(true);
+    const modal = clone.firstElementChild as HTMLElement;
     document.body.appendChild(clone);
 
     const settingsModal = document.getElementById("settings-modal");
@@ -443,11 +445,11 @@ export function createConversationItem(timestamp: number, conversation: Conversa
     if (!template) return;
 
     const clone = template.content.cloneNode(true);
-    const item = clone.querySelector(".conversation-item") as HTMLElement;
+    const conversationItem = clone.firstElementChild as HTMLElement;
+    const item = conversationItem;
 
     item.dataset.timestamp = String(timestamp);
 
-    const conversationItem = clone.firstElementChild as HTMLElement;
     historyContainer.appendChild(clone);
 
     const defaultSummary: ConversationSummary = { title: "New Conversation", imageCount: 0, entryCount: 0, created: timestamp, updated: timestamp };
@@ -508,12 +510,13 @@ export async function updateConversationListItemTitle(timestamp: number): Promis
     const template = document.getElementById("conversation-item-template");
     if (!template) return;
     const tempClone = template.content.cloneNode(true);
-    setConversationItemUI(tempClone as unknown as HTMLElement, summary, timestamp, conversation);
+    const tempItem = tempClone.firstElementChild as HTMLElement;
+    setConversationItemUI(tempItem, summary, timestamp, conversation);
 
     const dateElement = item.querySelector(".conversation-date") as HTMLElement | null;
     const previewElement = item.querySelector(".conversation-preview") as HTMLElement | null;
-    const tempDateElement = (tempClone as unknown as HTMLElement).querySelector(".conversation-date") as HTMLElement | null;
-    const tempPreviewElement = (tempClone as unknown as HTMLElement).querySelector(".conversation-preview") as HTMLElement | null;
+    const tempDateElement = tempItem.querySelector(".conversation-date") as HTMLElement | null;
+    const tempPreviewElement = tempItem.querySelector(".conversation-preview") as HTMLElement | null;
 
     if (dateElement && tempDateElement) {
         dateElement.textContent = tempDateElement.textContent;
@@ -564,19 +567,73 @@ export function extractImageUrls(response: ChatCompletionResponse): string[] {
 }
 
 /**
- * Displays an error message in the conversation area
- * @param {string} errorMessage - Error message to display
+ * Displays detailed error information in the error box
+ * @param {ErrorInfo | string} errorInfo - Error information to display
  */
-export function displayError(errorMessage: string): void {
-    const conversationArea = document.getElementById("conversation-area");
-    if (!conversationArea) return;
+export function displayError(errorInfo: ErrorInfo | string): void {
+    let info: ErrorInfo;
 
-    const errorDiv = document.createElement("div");
-    errorDiv.className = "alert alert-danger mb-3";
-    errorDiv.textContent = "Error: " + errorMessage;
+    if (typeof errorInfo === 'string') {
+        info = { message: errorInfo };
+    } else {
+        info = errorInfo;
+    }
 
-    conversationArea.appendChild(errorDiv);
-    conversationArea.scrollTop = conversationArea.scrollHeight;
+    if (!info.message) return;
+
+    const errorContainer = document.getElementById("error-container");
+    if (!errorContainer) return;
+
+    const template = document.getElementById("error-box-template");
+    if (!template) return;
+
+    const clone = template.content.cloneNode(true) as DocumentFragment;
+    const errorBox = clone.firstElementChild as HTMLElement;
+
+    const errorTitle = errorBox.querySelector(".error-title") as HTMLElement;
+    const errorMessage = errorBox.querySelector(".error-message") as HTMLElement;
+    const errorDetails = errorBox.querySelector(".error-details") as HTMLElement;
+    const errorStatus = errorBox.querySelector(".error-status") as HTMLElement;
+    const errorCode = errorBox.querySelector(".error-code") as HTMLElement;
+    const errorType = errorBox.querySelector(".error-type") as HTMLElement;
+    const errorRaw = errorBox.querySelector(".error-raw") as HTMLElement;
+    const errorDismiss = errorBox.querySelector(".error-dismiss") as HTMLButtonElement;
+
+    errorTitle.textContent = "Error";
+    errorMessage.textContent = info.message;
+
+    const hasDetails = info.status || info.code || info.type || info.rawResponse;
+    if (hasDetails) {
+        errorDetails.style.display = "block";
+        errorDetails.style.marginTop = "0.5rem";
+        errorDetails.style.paddingTop = "0.5rem";
+        errorDetails.style.borderTop = "1px solid rgba(255,255,255,0.1)";
+
+        if (info.status) {
+            errorStatus.textContent = "Status: " + info.status;
+            errorStatus.style.display = "block";
+        }
+        if (info.code) {
+            errorCode.textContent = "Code: " + info.code;
+            errorCode.style.display = "block";
+        }
+        if (info.type) {
+            errorType.textContent = "Type: " + info.type;
+            errorType.style.display = "block";
+        }
+        if (info.rawResponse) {
+            errorRaw.textContent = "Raw: " + info.rawResponse;
+            errorRaw.style.display = "block";
+        }
+    }
+
+    if (errorDismiss) {
+        errorDismiss.addEventListener("click", function() {
+            errorBox.remove();
+        });
+    }
+
+    errorContainer.appendChild(errorBox);
 }
 
 /**
@@ -713,6 +770,18 @@ export function clearUserInput(): void {
 }
 
 /**
+ * Smoothly scrolls the conversation area to the bottom
+ * @param {HTMLElement} conversationArea - The conversation area element
+ */
+function scrollConversationToBottom(conversationArea: HTMLElement): void {
+    if (!conversationArea) return;
+    conversationArea.scrollTo({
+        top: conversationArea.scrollHeight,
+        behavior: 'smooth' as ScrollBehavior
+    });
+}
+
+/**
  * Renders a range of images from imageFilenames
  * @param {Conversation['entries'][0]} entry - Conversation entry containing images
  * @param {number} conversationTimestamp - Conversation timestamp for image loading
@@ -744,12 +813,21 @@ function renderExistingImages(
                 const template = document.getElementById("image-entry-template");
                 if (!template) return;
                 const imgTemplate = template.content.cloneNode(true);
-                const imgItemContainer = imgTemplate.querySelector(".image-item-container") as HTMLElement;
-                const imgElement = imgTemplate.querySelector(".generated-image") as HTMLImageElement;
+                const imgItemContainer = imgTemplate.firstElementChild as HTMLElement;
+                const imgElement = imgItemContainer.querySelector(".generated-image") as HTMLImageElement;
 
                 const objectUrl = URL.createObjectURL(blob);
                 imgElement.onload = function() {
                     URL.revokeObjectURL(objectUrl);
+                    
+                    if (entry.response.imageFilenames.includes("generating")) {
+                        const convArea = document.getElementById("conversation-area");
+                        if (convArea) {
+                            setTimeout(function() {
+                                scrollConversationToBottom(convArea);
+                            }, 50);
+                        }
+                    }
                 };
                 imgElement.src = objectUrl;
                 imgElement.style.maxWidth = "100%";
@@ -757,7 +835,7 @@ function renderExistingImages(
                 imgElement.dataset.entryIndex = String(entryIndex);
                 imgElement.dataset.imageIndex = String(imgIndex);
 
-                const downloadBtn = imgTemplate.querySelector(".download-btn") as HTMLButtonElement;
+                const downloadBtn = imgItemContainer.querySelector(".download-btn") as HTMLButtonElement;
                 downloadBtn.dataset.conversationTimestamp = String(conversationTimestamp);
                 downloadBtn.dataset.entryIndex = String(entryIndex);
                 downloadBtn.dataset.imageIndex = String(imgIndex);
@@ -781,7 +859,7 @@ function renderExistingImages(
                 });
                 initTooltipForElement(downloadBtn);
 
-                const regenerateNewBtn = imgTemplate.querySelector(".regenerate-new-btn") as HTMLButtonElement;
+                const regenerateNewBtn = imgItemContainer.querySelector(".regenerate-new-btn") as HTMLButtonElement;
                 regenerateNewBtn.dataset.entryIndex = String(entryIndex);
                 regenerateNewBtn.dataset.imageIndex = String(imgIndex);
                 regenerateNewBtn.addEventListener("click", function() {
@@ -789,7 +867,7 @@ function renderExistingImages(
                 });
                 initTooltipForElement(regenerateNewBtn);
 
-                const regenerateLargerBtn = imgTemplate.querySelector(".regenerate-larger-btn") as HTMLButtonElement;
+                const regenerateLargerBtn = imgItemContainer.querySelector(".regenerate-larger-btn") as HTMLButtonElement;
                 const isDisabled = (resolution === "4K") || !upscalingModel;
                 regenerateLargerBtn.disabled = isDisabled;
                 if (!upscalingModel) {
@@ -813,8 +891,10 @@ function renderExistingImages(
  * @param {Conversation['entries'][0]} entry - Conversation entry to render
  * @param {number} index - Entry index in conversation
  * @param {number} conversationTimestamp - Conversation timestamp for image loading
+ * @param {boolean} scrollTo - Whether to scroll this entry into view after rendering
+ * @returns {Promise<void>}
  */
-export function renderMessageEntry(entry: Conversation['entries'][0], index: number, conversationTimestamp: number): void {
+export async function renderMessageEntry(entry: Conversation['entries'][0], index: number, conversationTimestamp: number, scrollTo: boolean = false): Promise<void> {
     const conversationArea = document.getElementById("conversation-area");
     if (!conversationArea) return;
 
@@ -822,11 +902,31 @@ export function renderMessageEntry(entry: Conversation['entries'][0], index: num
     if (!template) return;
 
     const clone = template.content.cloneNode(true);
-    const messageEntry = clone.querySelector(".message-entry") as HTMLElement;
+    const messageEntry = clone.firstElementChild as HTMLElement;
 
-    (clone.querySelector(".user-prompt-text") as HTMLElement).textContent = entry.message.text;
+    const instructionsHeader = messageEntry.querySelector(".model-name-display") as HTMLElement;
+    const modelDisplayName = entry.message.modelName || entry.message.modelId || "[Unknown Model]";
+    instructionsHeader.textContent = modelDisplayName + ":";
 
-    const imagesContainer = clone.querySelector(".images-container") as HTMLElement;
+    const userPromptText = messageEntry.querySelector(".user-prompt-text") as HTMLElement;
+    userPromptText.textContent = entry.message.text;
+    userPromptText.style.maxHeight = "2.8em";
+    userPromptText.style.overflow = "hidden";
+    userPromptText.style.position = "relative";
+    const fadeElement = document.createElement("div");
+    fadeElement.className = "prompt-fade-out";
+    const computedStyle = window.getComputedStyle(userPromptText);
+    const backgroundColor = computedStyle.backgroundColor;
+    fadeElement.style.position = "absolute";
+    fadeElement.style.bottom = "0";
+    fadeElement.style.left = "0";
+    fadeElement.style.right = "0";
+    fadeElement.style.height = "1.5em";
+    fadeElement.style.background = "linear-gradient(to bottom, transparent 0%, " + backgroundColor + " 100%)";
+    fadeElement.style.pointerEvents = "none";
+    userPromptText.appendChild(fadeElement);
+
+    const imagesContainer = messageEntry.querySelector(".images-container") as HTMLElement;
     if (entry.response.imageFilenames && entry.response.imageFilenames.length > 0) {
         const hasGenerating = entry.response.imageFilenames.includes("generating");
 
@@ -837,7 +937,8 @@ export function renderMessageEntry(entry: Conversation['entries'][0], index: num
                     const spinnerTemplate = document.getElementById("image-loading-template");
                     if (spinnerTemplate) {
                         const spinnerClone = spinnerTemplate.content.cloneNode(true);
-                        imagesContainer.appendChild(spinnerClone);
+                        const spinnerItem = spinnerClone.firstElementChild as HTMLElement;
+                        imagesContainer.appendChild(spinnerItem);
                     }
                 } else {
                     const tempContainer = document.createElement("div");
@@ -845,24 +946,23 @@ export function renderMessageEntry(entry: Conversation['entries'][0], index: num
                     renderExistingImages(entry, conversationTimestamp, imgIndex, imgIndex + 1, tempContainer, index);
                 }
             }
-            messageEntry.scrollIntoView({ behavior: "smooth", block: "end" });
         } else {
             renderExistingImages(entry, conversationTimestamp, 0, entry.response.imageFilenames.length, imagesContainer, index);
         }
     }
 
-    const llmTextBtn = clone.querySelector(".toggle-llm-text") as HTMLElement;
-    const llmTextContent = clone.querySelector(".llm-text-content") as HTMLElement;
-    const expandIcon = clone.querySelector(".expand-icon") as HTMLElement;
-    const collapseIcon = clone.querySelector(".collapse-icon") as HTMLElement;
-    const btnText = clone.querySelector(".btn-text") as HTMLElement;
-    const copyLlmBtn = clone.querySelector(".copy-llm-btn") as HTMLButtonElement;
+    const llmTextBtn = messageEntry.querySelector(".toggle-llm-text") as HTMLElement;
+    const llmTextContent = messageEntry.querySelector(".llm-text-content") as HTMLElement;
+    const expandIcon = messageEntry.querySelector(".expand-icon") as HTMLElement;
+    const collapseIcon = messageEntry.querySelector(".collapse-icon") as HTMLElement;
+    const btnText = messageEntry.querySelector(".btn-text") as HTMLElement;
+    const copyLlmBtn = messageEntry.querySelector(".copy-llm-btn") as HTMLButtonElement;
     
     initTooltipForElement(llmTextBtn);
     initTooltipForElement(copyLlmBtn);
     
     if (entry.response.text) {
-        (clone.querySelector(".llm-text-body") as HTMLElement).textContent = entry.response.text;
+        (messageEntry.querySelector(".llm-text-body") as HTMLElement).textContent = entry.response.text;
         
         llmTextBtn.addEventListener("click", function() {
             if (llmTextContent.classList.contains("collapsed")) {
@@ -891,7 +991,7 @@ export function renderMessageEntry(entry: Conversation['entries'][0], index: num
         llmTextBtn.style.display = "none";
     }
 
-    const copyToTextareaBtn = clone.querySelector(".copy-to-textarea-btn") as HTMLButtonElement;
+    const copyToTextareaBtn = messageEntry.querySelector(".copy-to-textarea-btn") as HTMLButtonElement;
     copyToTextareaBtn.addEventListener("click", function() {
         const userInput = document.getElementById("user-input");
         if (userInput) {
@@ -902,13 +1002,21 @@ export function renderMessageEntry(entry: Conversation['entries'][0], index: num
     initTooltipForElement(copyToTextareaBtn);
 
     conversationArea.appendChild(messageEntry);
+
+    if (scrollTo) {
+        await new Promise(function(resolve) {
+            setTimeout(resolve, 50);
+        });
+        scrollConversationToBottom(conversationArea);
+    }
 }
 
 /**
  * Renders a complete conversation in the conversation area
  * @param {Conversation} conversation - Conversation object with entries
+ * @returns {Promise<void>}
  */
-export function renderConversation(conversation: Conversation): void {
+export async function renderConversation(conversation: Conversation): Promise<void> {
     const conversationArea = document.getElementById("conversation-area");
     if (!conversationArea) return;
 
@@ -916,9 +1024,13 @@ export function renderConversation(conversation: Conversation): void {
 
     if (!conversation || !conversation.entries) return;
 
+    const promises: Promise<void>[] = [];
     conversation.entries.forEach(function(entry: Conversation['entries'][0], index: number) {
-        renderMessageEntry(entry, index, conversation.timestamp);
+        const isLast = index === conversation.entries.length - 1;
+        promises.push(renderMessageEntry(entry, index, conversation.timestamp, isLast));
     });
 
-    conversationArea.scrollTop = conversationArea.scrollHeight;
+    await Promise.all(promises);
+
+    scrollConversationToBottom(conversationArea);
 }

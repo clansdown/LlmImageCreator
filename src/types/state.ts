@@ -17,6 +17,8 @@ export interface ConversationMessage {
     systemPrompt: string;
     text: string;
     seed: number;
+    modelId?: string;
+    modelName?: string;
 }
 
 export interface ResponseData {
@@ -37,6 +39,7 @@ export interface ConversationSummary {
 
 export interface AppState {
     selectedModel: string | null;
+    visionModels: Array<{id: string; name: string}>;
     currentConversation: Conversation | null;
     conversationHistory: Message[];
     isGenerating: boolean;

@@ -76,6 +76,18 @@ window.addEventListener('online', handleOnlineStatusChange);
 window.addEventListener('offline', handleOnlineStatusChange);
 
 /**
+ * Gets a model's name by its ID from stored vision models
+ * @param {string} modelId - Model ID to look up
+ * @returns {string} Model name, or model ID if not found
+ */
+function getModelName(modelId: string): string {
+    const model = STATE.visionModels.find(function(m: {id: string; name: string}) {
+        return m.id === modelId;
+    });
+    return model ? model.name : modelId;
+}
+
+/**
  * Handles online/offline status changes
  */
 export function handleOnlineStatusChange(): void {
@@ -97,6 +109,7 @@ export function isOnline(): boolean {
  * Sets up event listeners but does not fetch data until API key is provided
  */
 export function init(): void {
+    console.log("Initializing application");
     setupEventListeners();
     ui.initSettingsDialog();
     loadPreferencesAndInitialize();
@@ -252,6 +265,7 @@ export function handleApiKeyEntry(): void {
         savePreference("apiKey", apiKey);
 
         fetchModels(apiKey).then(function(models: VisionModel[]) {
+            STATE.visionModels = models;
             ui.populateModelDropdown(models);
             
             getPreference("selectedModel").then(function(savedModelId: string | null) {
@@ -314,9 +328,11 @@ export async function saveImagesToConversation(timestamp: number, response: Chat
  * @param {ChatCompletionResponse} response - OpenRouter chat completion response
  * @param {string[]} imageFilenames - Saved image filenames
  * @param {ImageConfig} imageConfig - Image configuration options
+ * @param {string} modelId - Model ID used for generation
+ * @param {string} modelName - Model name used for generation
  * @returns {ConversationEntry} Created conversation entry
  */
-export function createConversationEntry(prompt: string, seed: number, response: ChatCompletionResponse, imageFilenames: string[], imageConfig: ImageConfig): ConversationEntry {
+export function createConversationEntry(prompt: string, seed: number, response: ChatCompletionResponse, imageFilenames: string[], imageConfig: ImageConfig, modelId: string, modelName: string): ConversationEntry {
     const message = response.choices[0].message;
     const resolution = imageConfig && imageConfig.imageSize ? imageConfig.imageSize : "1K";
     const resolutions: string[] = [];
@@ -327,7 +343,9 @@ export function createConversationEntry(prompt: string, seed: number, response: 
         message: {
             systemPrompt: SYSTEM_PROMPT,
             text: prompt,
-            seed: seed
+            seed: seed,
+            modelId: modelId,
+            modelName: modelName
         },
         response: {
             text: message.content || null,
@@ -435,7 +453,7 @@ export async function handleImageGenerationWithSpinner(
         entryIndex = conversation.entries.indexOf(targetEntry);
     }
 
-    ui.renderConversation(conversation);
+    await ui.renderConversation(conversation);
 
     try {
         const response = await generateImage(apiKey, prompt, model, systemPrompt, conversationHistory as ApiMessage[], imageConfig, seed, imageInput);
@@ -458,7 +476,9 @@ export async function handleImageGenerationWithSpinner(
         }
 
         if (isNewEntry) {
-            const entry = createConversationEntry(prompt, seed as number, response, imageFilenames, imageConfig);
+            const modelId = response.model;
+            const modelName = getModelName(modelId);
+            const entry = createConversationEntry(prompt, seed as number, response, imageFilenames, imageConfig, modelId, modelName);
             conversation.entries[entryIndex] = entry;
         } else {
             const placeholderIdx = targetEntry.response.imageFilenames.indexOf("generating");
@@ -473,16 +493,22 @@ export async function handleImageGenerationWithSpinner(
         }
 
         await saveConversation(conversation.timestamp, conversation);
-        ui.renderConversation(conversation);
+        await ui.renderConversation(conversation);
     } catch (error) {
         console.error("Error generating image:", error);
-        ui.displayError((error as Error).message);
+
+        const errorInfo = (error as unknown as { info?: { message: string; status?: number; code?: string; type?: string; rawResponse?: string } }).info;
+        if (errorInfo) {
+            ui.displayError(errorInfo);
+        } else {
+            ui.displayError((error as Error).message);
+        }
 
         if (isNewEntry && conversation.entries.length > 0) {
             const lastEntry = conversation.entries[conversation.entries.length - 1];
             if (lastEntry.response.imageFilenames?.[0] === "generating") {
                 conversation.entries.pop();
-                ui.renderConversation(conversation);
+                await ui.renderConversation(conversation);
             }
         } else if (!isNewEntry) {
             const placeholderIdx = targetEntry.response.imageFilenames.indexOf("generating");
@@ -491,7 +517,7 @@ export async function handleImageGenerationWithSpinner(
                 targetEntry.response.imageResolutions.splice(placeholderIdx, 1);
             }
             await saveConversation(conversation.timestamp, conversation);
-            ui.renderConversation(conversation);
+            await ui.renderConversation(conversation);
         }
     } finally {
         fetchBalance(apiKey).then(function(balance: BalanceInfo) {
@@ -639,7 +665,7 @@ export async function handleRegenerateWithNewSeed(entryIndex: number, imageIndex
         STATE.currentConversation,
         entry,
         prompt,
-        STATE.selectedModel || "",
+        entry.message.modelId || STATE.selectedModel || "",
         entry.message.systemPrompt || null,
         [],
         imageConfig,
@@ -710,7 +736,12 @@ export async function handleRegenerateLarger(entryIndex: number, imageIndex: num
         );
     } catch (error) {
         console.error("Error upscaling image:", error);
-        ui.displayError((error as Error).message);
+        const errorInfo = (error as unknown as { info?: { message: string; status?: number; code?: string; type?: string; rawResponse?: string } }).info;
+        if (errorInfo) {
+            ui.displayError(errorInfo);
+        } else {
+            ui.displayError((error as Error).message);
+        }
         STATE.isGenerating = false;
         ui.setLoadingState(false);
     }
