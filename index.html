@@ -48,6 +48,18 @@
             white-space: pre-wrap;
             word-wrap: break-word;
         }
+        .user-input-collapsed {
+            height: 3em;
+            min-height: 3em;
+            max-height: 3em;
+            transition: height 0.3s ease, max-height 0.3s ease;
+        }
+        .user-input-expanded {
+            height: 45em;
+            min-height: 45em;
+            max-height: calc(100vh - 180px);
+            transition: height 0.3s ease, max-height 0.3s ease;
+        }
         .dropdown-item {
             cursor: pointer;
         }
@@ -150,7 +162,7 @@
 
             <div id="right-column" class="col-12">
                 <div id="input-container" class="mb-2">
-                    <textarea id="user-input" class="form-control" rows="6" placeholder="Describe the image you want to generate..."></textarea>
+                    <textarea id="user-input" class="form-control user-input-expanded" rows="2" placeholder="Describe the image you want to generate..."></textarea>
                     <div class="row mb-2">
                         <div class="col">
                             <button id="generate-button" type="button" class="btn btn-primary w-100" disabled data-bs-toggle="tooltip" data-bs-title="Generate image">Generate</button>
@@ -275,6 +287,11 @@
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="system-prompt-textarea" class="form-label">System Prompt</label>
+                            <textarea id="system-prompt-textarea" class="form-control" rows="4" placeholder="Enter your custom system prompt..."></textarea>
+                            <div class="form-text">Universal style guidelines for image generation. This prompt will be used for all new images.</div>
+                        </div>
                         <div class="mb-3">
                             <label for="upscaling-model-select" class="form-label">Upscaling Model</label>
                             <select id="upscaling-model-select" class="form-select" aria-label="Select upscaling model">

@@ -26,6 +26,31 @@ export function generateRandomSeed(): number {
 }
 
 /**
+ * Clones template, inserts into container, and returns first element
+ * @param {string} templateId - ID of template element
+ * @param {HTMLElement} container - Parent element to append to
+ * @returns {HTMLElement | null} First child element of cloned template, or null if template not found or empty
+ */
+export function cloneTemplate(templateId: string, container: HTMLElement): HTMLElement | null {
+    const template = document.getElementById(templateId) as HTMLTemplateElement | null;
+    if (!template) {
+        console.error('cloneTemplate: Template not found with id:', templateId);
+        return null;
+    }
+    
+    const clone = template.content.cloneNode(true) as DocumentFragment;
+    const element = clone.firstElementChild as HTMLElement | null;
+    
+    if (!element) {
+        console.error('cloneTemplate: Template has no first child with id:', templateId);
+        return null;
+    }
+    
+    container.appendChild(element);
+    return element;
+}
+
+/**
  * Generates a conversation title using the gemma model
  * @param {string} prompt - User's prompt to summarize
  * @returns {Promise<string>} Generated title

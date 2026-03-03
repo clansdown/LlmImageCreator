@@ -4,7 +4,7 @@
  */
 
 import { STATE } from './state';
-import { SYSTEM_PROMPT, UPSCALE_PROMPT } from './prompt';
+import { UPSCALE_PROMPT } from './prompt';
 import { fetchModels, fetchBalance, generateImage, getGenerationInfo } from './openrouter';
 import { savePreference, getPreference, listConversations, createConversation, loadConversation, saveConversation, deletePreference, getImage, saveImage, saveSummary, loadSummary } from './storage';
 import * as ui from './ui';
@@ -119,6 +119,7 @@ export function init(): void {
     });
 
     ui.initTooltips();
+    ui.expandTextarea();
 
     if (!navigator.onLine) {
         ui.displayWarning("Network unavailable. Some features may not work offline.");
@@ -160,6 +161,15 @@ export function setupEventListeners(): void {
         userInput.addEventListener("input", function() {
             const hasContent = userInput.value.trim().length > 0;
             ui.setGenerateButtonState(hasContent);
+        });
+        userInput.addEventListener("focus", function() {
+            ui.expandTextarea();
+        });
+        userInput.addEventListener("blur", function() {
+            const hasMessages = STATE.currentConversation?.entries?.length ?? 0 > 0;
+            if (hasMessages) {
+                ui.shrinkTextarea();
+            }
         });
     }
 
@@ -330,9 +340,10 @@ export async function saveImagesToConversation(timestamp: number, response: Chat
  * @param {ImageConfig} imageConfig - Image configuration options
  * @param {string} modelId - Model ID used for generation
  * @param {string} modelName - Model name used for generation
+ * @param {string} systemPrompt - System prompt used for generation
  * @returns {ConversationEntry} Created conversation entry
  */
-export function createConversationEntry(prompt: string, seed: number, response: ChatCompletionResponse, imageFilenames: string[], imageConfig: ImageConfig, modelId: string, modelName: string): ConversationEntry {
+export function createConversationEntry(prompt: string, seed: number, response: ChatCompletionResponse, imageFilenames: string[], imageConfig: ImageConfig, modelId: string, modelName: string, systemPrompt: string): ConversationEntry {
     const message = response.choices[0].message;
     const resolution = imageConfig && imageConfig.imageSize ? imageConfig.imageSize : "1K";
     const resolutions: string[] = [];
@@ -341,7 +352,7 @@ export function createConversationEntry(prompt: string, seed: number, response: 
     }
     const entry: ConversationEntry = {
         message: {
-            systemPrompt: SYSTEM_PROMPT,
+            systemPrompt: systemPrompt,
             text: prompt,
             seed: seed,
             modelId: modelId,
@@ -478,7 +489,7 @@ export async function handleImageGenerationWithSpinner(
         if (isNewEntry) {
             const modelId = response.model;
             const modelName = getModelName(modelId);
-            const entry = createConversationEntry(prompt, seed as number, response, imageFilenames, imageConfig, modelId, modelName);
+            const entry = createConversationEntry(prompt, seed as number, response, imageFilenames, imageConfig, modelId, modelName, systemPrompt || "");
             conversation.entries[entryIndex] = entry;
         } else {
             const placeholderIdx = targetEntry.response.imageFilenames.indexOf("generating");
@@ -534,7 +545,7 @@ export async function handleImageGenerationWithSpinner(
 /**
  * Handles the generate button click - initiates image generation
  */
-export function handleGenerate(): void {
+export async function handleGenerate(): Promise<void> {
     if (STATE.isGenerating) return;
 
     if (!isOnline()) {
@@ -584,6 +595,8 @@ export function handleGenerate(): void {
     STATE.isGenerating = true;
     ui.setLoadingState(true);
 
+    const systemPrompt = await ui.getSystemPrompt();
+
     createConversation(STATE.currentConversation.timestamp).then(function() {
         return handleImageGenerationWithSpinner(
             apiKey,
@@ -591,7 +604,7 @@ export function handleGenerate(): void {
             null,
             prompt,
             STATE.selectedModel!,
-            SYSTEM_PROMPT,
+            systemPrompt,
             STATE.conversationHistory,
             imageConfig,
             seed,
@@ -599,6 +612,7 @@ export function handleGenerate(): void {
         );
     }).then(function() {
         ui.clearUserInput();
+        ui.shrinkTextarea();
 
         if (STATE.currentConversation!.entries.length === 1) {
             initializeConversationSummary(STATE.currentConversation!.timestamp).then(function() {

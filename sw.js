@@ -121,24 +121,32 @@ self.addEventListener('fetch', function(event) {
     }
 
     event.respondWith(
-        caches.match(event.request).then(function(response) {
-            if (response) {
-                return response;
+        fetch(event.request).then(function(networkResponse) {
+            if (!networkResponse.ok) {
+                throw new Error('Network error');
             }
-            return fetch(event.request).then(function(networkResponse) {
-                if (networkResponse && networkResponse.type === 'basic') {
-                    const responseToCache = networkResponse.clone();
-                    caches.open(STATIC_CACHE).then(function(cache) {
-                        cache.put(event.request, responseToCache);
+            
+            const responseClone = networkResponse.clone();
+            
+            if (networkResponse.type === 'basic') {
+                caches.open(STATIC_CACHE).then(function(cache) {
+                    cache.put(event.request, networkResponse).catch(function(e) {
+                        console.error('Cache put failed:', e);
                     });
-                }
-                return networkResponse;
-            });
-        }).catch(function() {
-            if (event.request.destination === 'document') {
-                return caches.match('/index.html');
+                });
             }
-            return new Response('Offline', { status: 503 });
+            
+            return responseClone;
+        }).catch(function(error) {
+            return caches.match(event.request).then(function(cachedResponse) {
+                if (cachedResponse) {
+                    return cachedResponse;
+                }
+                if (event.request.destination === 'document') {
+                    return caches.match('/index.html');
+                }
+                return new Response('Offline', { status: 503 });
+            });
         })
     );
 });

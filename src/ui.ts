@@ -4,8 +4,9 @@
  */
 
 import { STATE } from './state';
+import { SYSTEM_PROMPT } from './prompt';
 import { savePreference, getPreference, loadConversation, getImage, loadSummary, listConversations } from './storage';
-import { generateConversationTitle, getApiKey, updateConversationSummary } from './util';
+import { generateConversationTitle, getApiKey, updateConversationSummary, cloneTemplate } from './util';
 import { fetchVisionModels } from './openrouter';
 import { handleRegenerateWithNewSeed, handleRegenerateLarger, getUpscalingModel } from './agent';
 import type { Conversation, ConversationSummary } from './types/state';
@@ -173,6 +174,15 @@ export function getAspectRatio(): string {
 }
 
 /**
+ * Gets the system prompt from preferences or default
+ * @returns {Promise<string>} System prompt value
+ */
+export async function getSystemPrompt(): Promise<string> {
+    const savedPrompt = await getPreference("systemPrompt");
+    return savedPrompt || SYSTEM_PROMPT;
+}
+
+/**
  * Gets the user's prompt from the textarea
  * @returns {string} User's input prompt
  */
@@ -180,6 +190,38 @@ export function getUserPrompt(): string {
     const textarea = document.getElementById("user-input");
     if (!textarea) return "";
     return (textarea as HTMLTextAreaElement).value.trim();
+}
+
+/**
+ * Shrinks the user input textarea to collapsed state (small)
+ */
+export function shrinkTextarea(): void {
+    const textarea = document.getElementById("user-input") as HTMLTextAreaElement | null;
+    if (!textarea) return;
+    textarea.classList.remove("user-input-expanded");
+    textarea.classList.add("user-input-collapsed");
+}
+
+/**
+ * Expands the user input textarea to expanded state (big)
+ */
+export function expandTextarea(): void {
+    const textarea = document.getElementById("user-input") as HTMLTextAreaElement | null;
+    if (!textarea) return;
+    textarea.classList.remove("user-input-collapsed");
+    textarea.classList.add("user-input-expanded");
+}
+
+/**
+ * Sets the textarea initial state based on whether conversation has messages
+ * @param {boolean} conversationHasMessages - Whether the conversation has 1+ entries
+ */
+export function setTextareaInitialState(conversationHasMessages: boolean): void {
+    if (conversationHasMessages) {
+        shrinkTextarea();
+    } else {
+        expandTextarea();
+    }
 }
 
 /**
@@ -199,6 +241,7 @@ export async function handleNewConversation(): Promise<void> {
     STATE.conversationHistory = [];
     clearConversationArea();
     clearUserInput();
+    expandTextarea();
 
     const historyContainer = document.getElementById("conversation-history");
     if (historyContainer) {
@@ -233,12 +276,8 @@ export function initTooltipForElement(element: HTMLElement): void {
  * Initializes the settings dialog modal and populates the upscaling model dropdown
  */
 export async function initSettingsDialog(): Promise<void> {
-    const template = document.getElementById("settings-dialog-template");
-    if (!template) return;
-
-    const clone = template.content.cloneNode(true);
-    const modal = clone.firstElementChild as HTMLElement;
-    document.body.appendChild(clone);
+    const modal = cloneTemplate("settings-dialog-template", document.body);
+    if (!modal) return;
 
     const settingsModal = document.getElementById("settings-modal");
     if (!settingsModal) return;
@@ -262,6 +301,26 @@ export async function initSettingsDialog(): Promise<void> {
             const modelId = (e.target as HTMLSelectElement).value;
             if (modelId) {
                 savePreference("upscalingModel", modelId);
+            }
+        });
+    }
+
+    const systemPromptTextarea = document.getElementById("system-prompt-textarea") as HTMLTextAreaElement | null;
+    if (systemPromptTextarea) {
+        getPreference("systemPrompt").then(function(savedPrompt: string | null) {
+            if (savedPrompt && savedPrompt.length > 0) {
+                systemPromptTextarea.value = savedPrompt;
+            } else {
+                systemPromptTextarea.value = SYSTEM_PROMPT;
+            }
+        });
+
+        systemPromptTextarea.addEventListener("input", function(e) {
+            const prompt = (e.target as HTMLTextAreaElement).value;
+            if (prompt && prompt.trim().length > 0) {
+                savePreference("systemPrompt", prompt.trim());
+            } else {
+                savePreference("systemPrompt", SYSTEM_PROMPT);
             }
         });
     }
@@ -327,6 +386,12 @@ export async function handleSettingsOpen(): Promise<void> {
     if (select && modelId) {
         select.value = modelId;
     }
+
+    const systemPromptTextarea = document.getElementById("system-prompt-textarea") as HTMLTextAreaElement | null;
+    if (systemPromptTextarea) {
+        const savedPrompt = await getPreference("systemPrompt");
+        systemPromptTextarea.value = savedPrompt || SYSTEM_PROMPT;
+    }
 }
 
 /**
@@ -364,6 +429,8 @@ export async function loadConversationIntoView(timestamp: number): Promise<void>
         });
     }
 
+    const hasMessages = conversation.entries && conversation.entries.length > 0;
+    setTextareaInitialState(hasMessages);
     clearConversationArea();
     renderConversation(conversation);
 
@@ -441,16 +508,11 @@ export function createConversationItem(timestamp: number, conversation: Conversa
     const historyContainer = document.getElementById("conversation-history");
     if (!historyContainer) return;
 
-    const template = document.getElementById("conversation-item-template");
-    if (!template) return;
+    const conversationItem = cloneTemplate("conversation-item-template", historyContainer);
+    if (!conversationItem) return;
 
-    const clone = template.content.cloneNode(true);
-    const conversationItem = clone.firstElementChild as HTMLElement;
     const item = conversationItem;
-
     item.dataset.timestamp = String(timestamp);
-
-    historyContainer.appendChild(clone);
 
     const defaultSummary: ConversationSummary = { title: "New Conversation", imageCount: 0, entryCount: 0, created: timestamp, updated: timestamp };
 
@@ -507,10 +569,9 @@ export async function updateConversationListItemTitle(timestamp: number): Promis
         summary = { title: "New Conversation", imageCount: 0, entryCount: 0, created: timestamp, updated: timestamp };
     }
 
-    const template = document.getElementById("conversation-item-template");
-    if (!template) return;
-    const tempClone = template.content.cloneNode(true);
-    const tempItem = tempClone.firstElementChild as HTMLElement;
+    const tempContainer = document.createElement('div');
+    const tempItem = cloneTemplate("conversation-item-template", tempContainer);
+    if (!tempItem) return;
     setConversationItemUI(tempItem, summary, timestamp, conversation);
 
     const dateElement = item.querySelector(".conversation-date") as HTMLElement | null;
@@ -584,11 +645,8 @@ export function displayError(errorInfo: ErrorInfo | string): void {
     const errorContainer = document.getElementById("error-container");
     if (!errorContainer) return;
 
-    const template = document.getElementById("error-box-template");
-    if (!template) return;
-
-    const clone = template.content.cloneNode(true) as DocumentFragment;
-    const errorBox = clone.firstElementChild as HTMLElement;
+    const errorBox = cloneTemplate("error-box-template", errorContainer);
+    if (!errorBox) return;
 
     const errorTitle = errorBox.querySelector(".error-title") as HTMLElement;
     const errorMessage = errorBox.querySelector(".error-message") as HTMLElement;
@@ -632,8 +690,6 @@ export function displayError(errorInfo: ErrorInfo | string): void {
             errorBox.remove();
         });
     }
-
-    errorContainer.appendChild(errorBox);
 }
 
 /**
@@ -810,10 +866,8 @@ function renderExistingImages(
             getImage(conversationTimestamp, parseInt(filename, 10)).then(function(blob: Blob | null) {
                 if (!blob) return;
 
-                const template = document.getElementById("image-entry-template");
-                if (!template) return;
-                const imgTemplate = template.content.cloneNode(true);
-                const imgItemContainer = imgTemplate.firstElementChild as HTMLElement;
+                const imgItemContainer = cloneTemplate("image-entry-template", imagesContainer);
+                if (!imgItemContainer) return;
                 const imgElement = imgItemContainer.querySelector(".generated-image") as HTMLImageElement;
 
                 const objectUrl = URL.createObjectURL(blob);
@@ -879,8 +933,6 @@ function renderExistingImages(
                     handleRegenerateLarger(entryIndex, imgIndex);
                 });
                 initTooltipForElement(regenerateLargerBtn);
-
-                imagesContainer.appendChild(imgItemContainer);
             });
         }
     });
@@ -898,11 +950,8 @@ export async function renderMessageEntry(entry: Conversation['entries'][0], inde
     const conversationArea = document.getElementById("conversation-area");
     if (!conversationArea) return;
 
-    const template = document.getElementById("message-entry-template");
-    if (!template) return;
-
-    const clone = template.content.cloneNode(true);
-    const messageEntry = clone.firstElementChild as HTMLElement;
+    const messageEntry = cloneTemplate("message-entry-template", conversationArea);
+    if (!messageEntry) return;
 
     const instructionsHeader = messageEntry.querySelector(".model-name-display") as HTMLElement;
     const modelDisplayName = entry.message.modelName || entry.message.modelId || "[Unknown Model]";
@@ -936,9 +985,8 @@ export async function renderMessageEntry(entry: Conversation['entries'][0], inde
                 if (filename === "generating") {
                     const spinnerTemplate = document.getElementById("image-loading-template");
                     if (spinnerTemplate) {
-                        const spinnerClone = spinnerTemplate.content.cloneNode(true);
-                        const spinnerItem = spinnerClone.firstElementChild as HTMLElement;
-                        imagesContainer.appendChild(spinnerItem);
+                        const spinnerItem = cloneTemplate("image-loading-template", imagesContainer);
+                        if (!spinnerItem) return;
                     }
                 } else {
                     const tempContainer = document.createElement("div");
@@ -1000,8 +1048,6 @@ export async function renderMessageEntry(entry: Conversation['entries'][0], inde
         }
     });
     initTooltipForElement(copyToTextareaBtn);
-
-    conversationArea.appendChild(messageEntry);
 
     if (scrollTo) {
         await new Promise(function(resolve) {
