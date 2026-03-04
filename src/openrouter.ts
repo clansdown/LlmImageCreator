@@ -176,6 +176,7 @@ export async function fetchBalance(apiKey: string): Promise<BalanceInfo> {
  * @param {ImageConfig | undefined} imageConfig - Image configuration options
  * @param {number | undefined} seed - Seed for reproducible generation
  * @param {ImageInput | undefined} imageInput - Optional image input for vision models
+ * @param {string[] | undefined} referenceImages - Optional reference image data URLs
  * @returns {Promise<ChatCompletionResponse>} Chat completion response with images
  * @throws {Error} If API request fails
  */
@@ -187,7 +188,8 @@ export async function generateImage(
     conversationHistory: Message[],
     imageConfig: ImageConfig | undefined,
     seed: number | undefined,
-    imageInput: ImageInput | undefined
+    imageInput: ImageInput | undefined,
+    referenceImages?: string[]
 ): Promise<ChatCompletionResponse> {
     /** @type {Array<{role: string, content: string | Array<object>}>} */
     const messages: Array<{role: string; content: string | Array<{type: string; text?: string; image_url?: {url: string}; url?: string}>}> = [];
@@ -203,26 +205,48 @@ export async function generateImage(
         conversationHistory.forEach(function(msg: Message) {
             messages.push({
                 role: msg.role,
-                content: msg.content
+                content: msg.content || ""
             });
         });
     }
 
-    if (imageInput && imageInput.imageData) {
-        messages.push({
-            role: "user",
-            content: [
-                {
-                    type: "text",
-                    text: prompt
-                },
-                {
+    const hasReferenceImages = referenceImages && referenceImages.length > 0;
+    const hasImageInput = imageInput && imageInput.imageData;
+
+    if (hasReferenceImages || hasImageInput) {
+        /** @type {Array<{type: string; text?: string; image_url?: {url: string}}>} */
+        const contentArray: Array<{type: string; text?: string; image_url?: {url: string}}> = [];
+
+        if (prompt && prompt.trim().length > 0) {
+            contentArray.push({
+                type: "text",
+                text: prompt
+            });
+        }
+
+        if (hasReferenceImages) {
+            for (const refUrl of referenceImages!) {
+                contentArray.push({
                     type: "image_url",
                     image_url: {
-                        url: imageInput.imageData
+                        url: refUrl
                     }
+                });
+            }
+        }
+
+        if (hasImageInput) {
+            contentArray.push({
+                type: "image_url",
+                image_url: {
+                    url: imageInput!.imageData
                 }
-            ]
+            });
+        }
+
+        messages.push({
+            role: "user",
+            content: contentArray
         });
     } else {
         messages.push({

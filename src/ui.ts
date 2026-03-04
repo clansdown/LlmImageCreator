@@ -5,15 +5,90 @@
 
 import { STATE } from './state';
 import { SYSTEM_PROMPT } from './prompt';
-import { savePreference, getPreference, loadConversation, getImage, loadSummary, listConversations } from './storage';
+import { savePreference, getPreference, loadConversation, getImage, loadSummary, listConversations, getReferenceImageDataUrl, getAllAvailableImages, uploadReferenceImage, saveConversation, getImageDataURL } from './storage';
 import { generateConversationTitle, getApiKey, updateConversationSummary, cloneTemplate } from './util';
 import { fetchVisionModels } from './openrouter';
 import { handleRegenerateWithNewSeed, handleRegenerateLarger, getUpscalingModel } from './agent';
-import type { Conversation, ConversationSummary } from './types/state';
+import type { Conversation, ConversationSummary, ReferenceImage } from './types/state';
 import type { VisionModel, ChatCompletionResponse } from './types/api';
 import type { ErrorInfo } from './types/error';
 
 export { getApiKey, updateConversationSummary, getUpscalingModel, handleRegenerateWithNewSeed, handleRegenerateLarger };
+
+/** @type {Array<{timestamp: number; imageIndex: number; title: string}>} */
+let availableImagesCache: Array<{timestamp: number; imageIndex: number; title: string}> = [];
+
+/**
+ * @typedef {Object} ImageItem
+ * @property {number} timestamp
+ * @property {number} imageIndex
+ * @property {string} title
+ * @property {HTMLElement} item
+ * @property {HTMLInputElement} checkbox
+ * @property {HTMLImageElement} img
+ * @property {boolean} isSelected
+ * @property {boolean} isBroken
+ * @property {boolean} isVisible
+ */
+
+/**
+ * @typedef {Object} ConversationGroup
+ * @property {number} timestamp
+ * @property {string} title
+ * @property {number} imageCount
+ * @property {HTMLElement} group
+ * @property {HTMLButtonElement} button
+ * @property {HTMLElement} chevron
+ * @property {HTMLElement} collapse
+ * @property {HTMLElement} grid
+ * @property {HTMLElement} spinner
+ * @property {boolean} isExpanded
+ * @property {boolean} isLoaded
+ * @property {boolean} isVisible
+ * @property {Array<ImageItem>} imageItems
+ */
+
+/**
+ * @typedef {Object} DialogState
+ * @property {string} searchTerm
+ * @property {Array<ConversationGroup>} conversations
+ * @property {number} lastUpdated
+ */
+
+/** @type {DialogState} */
+let dialogState: {
+    searchTerm: string;
+    conversations: Array<{
+        timestamp: number;
+        title: string;
+        imageCount: number;
+        group: HTMLElement;
+        titleBar: HTMLElement;
+        chevron: HTMLElement;
+        collapse: HTMLElement;
+        grid: HTMLElement;
+        spinner: HTMLElement | null;
+        isExpanded: boolean;
+        isLoaded: boolean;
+        isVisible: boolean;
+        imageItems: Array<{
+            timestamp: number;
+            imageIndex: number;
+            title: string;
+            item: HTMLElement;
+            checkbox: HTMLInputElement;
+            img: HTMLImageElement;
+            isSelected: boolean;
+            isBroken: boolean;
+            isVisible: boolean;
+        }>;
+    }>;
+    lastUpdated: number;
+} = {
+    searchTerm: "",
+    conversations: [],
+    lastUpdated: 0
+};
 
 /**
  * Populates the model dropdown with available image generation models
@@ -242,6 +317,7 @@ export async function handleNewConversation(): Promise<void> {
     clearConversationArea();
     clearUserInput();
     expandTextarea();
+    clearReferenceImagesToolbar();
 
     const historyContainer = document.getElementById("conversation-history");
     if (historyContainer) {
@@ -432,7 +508,9 @@ export async function loadConversationIntoView(timestamp: number): Promise<void>
     const hasMessages = conversation.entries && conversation.entries.length > 0;
     setTextareaInitialState(hasMessages);
     clearConversationArea();
+    clearReferenceImagesToolbar();
     renderConversation(conversation);
+    renderReferenceImagesToolbar(conversation);
 
     const historyContainer = document.getElementById("conversation-history");
     if (historyContainer) {
@@ -1079,4 +1157,714 @@ export async function renderConversation(conversation: Conversation): Promise<vo
     await Promise.all(promises);
 
     scrollConversationToBottom(conversationArea);
+}
+
+/**
+ * Renders the reference images toolbar with plus button and thumbnails
+ * @param {Conversation} conversation - Current conversation object
+ */
+export function renderReferenceImagesToolbar(conversation: Conversation): void {
+    const container = document.getElementById("ref-images-toolbar-container");
+    if (!container) return;
+
+    container.innerHTML = "";
+
+    const toolbar = cloneTemplate("ref-images-toolbar-template", container);
+    if (!toolbar) return;
+
+    const refImages = conversation.referenceImages ?? [];
+    const containerEl = toolbar.querySelector("#ref-images-container") as HTMLElement;
+
+    if (!containerEl) return;
+
+    if (refImages.length === 0) {
+        toolbar.classList.add("empty");
+        toolbar.classList.remove("with-images");
+    } else {
+        toolbar.classList.remove("empty");
+        toolbar.classList.add("with-images");
+    }
+
+    const addBtn = toolbar.querySelector("#add-ref-image-btn") as HTMLButtonElement;
+    if (addBtn) {
+        addBtn.addEventListener("click", function() {
+            openReferenceImagesDialog();
+        });
+        initTooltipForElement(addBtn);
+    }
+
+    for (let i = 0; i < refImages.length; i++) {
+        const refImage = refImages[i];
+        renderReferenceImageThumbnail(refImage, i, containerEl);
+    }
+}
+
+/**
+ * Renders a single reference image thumbnail in the toolbar
+ * @param {ReferenceImage} refImage - Reference image object
+ * @param {number} index - Index in the reference images array
+ * @param {HTMLElement} containerEl - Container to append thumbnail to
+ */
+async function renderReferenceImageThumbnail(refImage: ReferenceImage, index: number, containerEl: HTMLElement): Promise<void> {
+    const template = document.getElementById("ref-image-item-template") as HTMLTemplateElement | null;
+    if (!template) return;
+
+    const clone = template.content.cloneNode(true) as DocumentFragment;
+    const item = clone.firstElementChild as HTMLElement;
+    if (!item) return;
+
+    const img = item.querySelector(".ref-image-thumbnail") as HTMLImageElement;
+    const removeBtn = item.querySelector(".remove-ref-image-btn") as HTMLButtonElement;
+
+    let dataUrl: string | null = null;
+    const isReference = refImage.conversationTimestamp < 0;
+
+    if (isReference) {
+        const timestamp = Math.abs(refImage.conversationTimestamp);
+        dataUrl = await getReferenceImageDataUrl(timestamp, refImage.imageIndex);
+    } else {
+        dataUrl = await getImageDataURL(refImage.conversationTimestamp, refImage.imageIndex);
+    }
+
+    if (dataUrl && img) {
+        img.src = dataUrl;
+    }
+
+    if (removeBtn) {
+        removeBtn.addEventListener("click", async function() {
+            await removeReferenceImage(index);
+        });
+        initTooltipForElement(removeBtn);
+    }
+
+    containerEl.appendChild(item);
+}
+
+/**
+ * Clears the reference images toolbar UI
+ */
+export function clearReferenceImagesToolbar(): void {
+    const container = document.getElementById("ref-images-toolbar-container");
+    if (!container) return;
+    container.innerHTML = "";
+}
+
+/**
+ * Invalidates the dialog data structure
+ * Called when images are added to OPFS
+ */
+export function invalidateDialogState(): void {
+    dialogState.conversations = [];
+    dialogState.searchTerm = "";
+    dialogState.lastUpdated = 0;
+}
+
+/**
+ * Checks if the dialog data structure is valid
+ * @returns {Promise<boolean>} True if valid, false if needs rebuild
+ */
+async function isDialogStateValid(): Promise<boolean> {
+    if (dialogState.conversations.length === 0) {
+        return false;
+    }
+    
+    const currentTimestamps = await listConversations();
+    currentTimestamps.sort(function(a, b) { return a - b; });
+    
+    const stateTimestamps = dialogState.conversations.map(function(g) { return g.timestamp; });
+    stateTimestamps.sort(function(a, b) { return a - b; });
+    
+    if (currentTimestamps.length !== stateTimestamps.length) {
+        return false;
+    }
+    
+    for (let i = 0; i < currentTimestamps.length; i++) {
+        if (currentTimestamps[i] !== stateTimestamps[i]) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+/**
+ * Creates a ConversationGroup object with all DOM elements and handlers
+ * @param {number} timestamp - Conversation timestamp
+ * @param {Array<{timestamp: number; imageIndex: number; title: string}>} images - Images for this conversation
+ * @returns {Promise<Object>} Conversation group object
+ */
+async function createConversationGroup(timestamp: number, images: Array<{timestamp: number; imageIndex: number; title: string}>): Promise<{
+    timestamp: number;
+    title: string;
+    imageCount: number;
+    group: HTMLElement;
+    titleBar: HTMLElement;
+    chevron: HTMLElement;
+    collapse: HTMLElement;
+    grid: HTMLElement;
+    spinner: HTMLElement | null;
+    isExpanded: boolean;
+    isLoaded: boolean;
+    isVisible: boolean;
+    imageItems: Array<{
+        timestamp: number;
+        imageIndex: number;
+        title: string;
+        item: HTMLElement;
+        checkbox: HTMLInputElement;
+        img: HTMLImageElement;
+        isSelected: boolean;
+        isBroken: boolean;
+        isVisible: boolean;
+    }>;
+}> {
+    const template = document.getElementById("ref-image-dialog-group-template") as HTMLTemplateElement;
+    const cloneTemplateNode = template.content.cloneNode(true) as DocumentFragment;
+    const groupElement = cloneTemplateNode.firstElementChild as HTMLElement;
+    
+    const titleBar = groupElement.querySelector(".ref-image-title-bar") as HTMLElement;
+    const chevron = groupElement.querySelector(".chevron") as HTMLElement;
+    const collapse = groupElement.querySelector(".collapse") as HTMLElement;
+    const grid = groupElement.querySelector(".ref-images-grid") as HTMLElement;
+    const titleEl = groupElement.querySelector(".conversation-title") as HTMLElement;
+    const countEl = groupElement.querySelector(".conversation-count") as HTMLElement;
+    
+    const title = images[0].title;
+    titleEl.textContent = title;
+    countEl.textContent = String(images.length);
+    
+    const uniqueId = "ref-collapse-" + timestamp;
+    collapse.id = uniqueId;
+    titleBar.setAttribute("aria-controls", uniqueId);
+    titleBar.setAttribute("aria-expanded", "false");
+    
+    const group: {
+        timestamp: number;
+        title: string;
+        imageCount: number;
+        group: HTMLElement;
+        titleBar: HTMLElement;
+        chevron: HTMLElement;
+        collapse: HTMLElement;
+        grid: HTMLElement;
+        spinner: HTMLElement | null;
+        isExpanded: boolean;
+        isLoaded: boolean;
+        isVisible: boolean;
+        imageItems: Array<{
+            timestamp: number;
+            imageIndex: number;
+            title: string;
+            item: HTMLElement;
+            checkbox: HTMLInputElement;
+            img: HTMLImageElement;
+            isSelected: boolean;
+            isBroken: boolean;
+            isVisible: boolean;
+        }>;
+    } = {
+        timestamp: timestamp,
+        title: title,
+        imageCount: images.length,
+        group: groupElement,
+        titleBar: titleBar,
+        chevron: chevron,
+        collapse: collapse,
+        grid: grid,
+        spinner: null,
+        isExpanded: false,
+        isLoaded: false,
+        isVisible: true,
+        imageItems: []
+    };
+    
+    titleBar.addEventListener("click", function(e) {
+        handleConversationClick(e, group);
+    });
+    
+    titleBar.addEventListener("keydown", function(e) {
+        if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            handleConversationClick(e, group);
+        }
+    });
+    
+    return group;
+}
+
+/**
+ * Handles click on conversation expand/collapse
+ * @param {Event} _e - Click event (unused)
+ * @param {Object} group - Conversation group object
+ */
+function handleConversationClick(_e: Event, group: {
+    timestamp: number;
+    title: string;
+    imageCount: number;
+    group: HTMLElement;
+    titleBar: HTMLElement;
+    chevron: HTMLElement;
+    collapse: HTMLElement;
+    grid: HTMLElement;
+    spinner: HTMLElement | null;
+    isExpanded: boolean;
+    isLoaded: boolean;
+    isVisible: boolean;
+    imageItems: Array<{
+        timestamp: number;
+        imageIndex: number;
+        title: string;
+        item: HTMLElement;
+        checkbox: HTMLInputElement;
+        img: HTMLImageElement;
+        isSelected: boolean;
+        isBroken: boolean;
+        isVisible: boolean;
+    }>;
+}): void {
+    if (group.isExpanded) {
+        collapseConversation(group);
+    } else {
+        expandConversation(group);
+    }
+}
+
+/**
+ * Expands a conversation group
+ * @param {Object} group - Conversation group object
+ */
+function expandConversation(group: {
+    collapse: HTMLElement;
+    titleBar: HTMLElement;
+    chevron: HTMLElement;
+    grid: HTMLElement;
+    spinner: HTMLElement | null;
+    isExpanded: boolean;
+    isLoaded: boolean;
+    imageItems: Array<any>;
+    timestamp: number;
+}): void {
+    group.collapse.classList.add("show");
+    group.titleBar.setAttribute("aria-expanded", "true");
+    group.chevron.classList.remove("collapsed");
+    group.chevron.classList.add("expanded");
+    group.isExpanded = true;
+    
+    if (!group.isLoaded) {
+        loadImagesForConversation(group);
+    }
+}
+
+/**
+ * Collapses a conversation group
+ * @param {Object} group - Conversation group object
+ */
+function collapseConversation(group: {
+    collapse: HTMLElement;
+    titleBar: HTMLElement;
+    chevron: HTMLElement;
+    isExpanded: boolean;
+}): void {
+    group.collapse.classList.remove("show");
+    group.titleBar.setAttribute("aria-expanded", "false");
+    group.chevron.classList.remove("expanded");
+    group.chevron.classList.add("collapsed");
+    group.isExpanded = false;
+}
+
+/**
+ * Lazily loads images for a conversation
+ * @param {Object} group - Conversation group object
+ */
+async function loadImagesForConversation(group: {
+    timestamp: number;
+    grid: HTMLElement;
+    spinner: HTMLElement | null;
+    isLoaded: boolean;
+    imageItems: Array<any>;
+}): Promise<void> {
+    const spinner = document.createElement("div");
+    spinner.className = "spinner-overlay";
+    group.grid.appendChild(spinner);
+    group.spinner = spinner;
+    
+    const images = availableImagesCache.filter(function(img) {
+        return img.timestamp === group.timestamp;
+    });
+    
+    for (const imgData of images) {
+        const imageItem = await createImageItem(imgData);
+        group.imageItems.push(imageItem);
+        group.grid.appendChild(imageItem.item);
+    }
+    
+    if (group.spinner) {
+        group.spinner.remove();
+        group.spinner = null;
+    }
+    
+    group.isLoaded = true;
+}
+
+/**
+ * Creates an ImageItem object with DOM elements and handlers
+ * @param {Object} imgData - Image data
+ * @returns {Promise<Object>} Image item object
+ */
+async function createImageItem(imgData: {
+    timestamp: number;
+    imageIndex: number;
+    title: string;
+}): Promise<{
+    timestamp: number;
+    imageIndex: number;
+    title: string;
+    item: HTMLElement;
+    checkbox: HTMLInputElement;
+    img: HTMLImageElement;
+    isSelected: boolean;
+    isBroken: boolean;
+    isVisible: boolean;
+}> {
+    const template = document.getElementById("ref-image-dialog-item-template") as HTMLTemplateElement;
+    const cloneTemplateNode = template.content.cloneNode(true) as DocumentFragment;
+    const itemElement = cloneTemplateNode.firstElementChild as HTMLElement;
+    
+    const checkbox = itemElement.querySelector(".ref-image-checkbox") as HTMLInputElement;
+    const img = itemElement.querySelector(".ref-image-dialog-thumbnail") as HTMLImageElement;
+    
+    const dataUrl = await getImageDataURL(imgData.timestamp, imgData.imageIndex);
+    const isBroken = !dataUrl;
+    
+    if (dataUrl) {
+        img.src = dataUrl;
+    } else {
+        img.src = "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='%236c757d'%3E%3Cpath d='M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z'/%3E%3C/svg%3E";
+        itemElement.classList.add("broken-image");
+        checkbox.disabled = true;
+    }
+    
+    const imageItem: {
+        timestamp: number;
+        imageIndex: number;
+        title: string;
+        item: HTMLElement;
+        checkbox: HTMLInputElement;
+        img: HTMLImageElement;
+        isSelected: boolean;
+        isBroken: boolean;
+        isVisible: boolean;
+    } = {
+        timestamp: imgData.timestamp,
+        imageIndex: imgData.imageIndex,
+        title: imgData.title,
+        item: itemElement,
+        checkbox: checkbox,
+        img: img,
+        isSelected: false,
+        isBroken: isBroken,
+        isVisible: true
+    };
+    
+    checkbox.addEventListener("change", function(e) {
+        handleImageCheckboxChange(e, imageItem);
+    });
+    
+    itemElement.addEventListener("click", function(e) {
+        handleImageItemClick(e, imageItem);
+    });
+    
+    return imageItem;
+}
+
+/**
+ * Handles checkbox change on image item
+ * @param {Event} _e - Change event
+ * @param {Object} imageItem - Image item object
+ */
+function handleImageCheckboxChange(_e: Event, imageItem: {
+    checkbox: HTMLInputElement;
+    isSelected: boolean;
+}): void {
+    imageItem.isSelected = imageItem.checkbox.checked;
+    updateSelectedCount();
+}
+
+/**
+ * Handles click on image item container
+ * @param {Event} e - Click event
+ * @param {Object} imageItem - Image item object
+ */
+function handleImageItemClick(e: Event, imageItem: {
+    item: HTMLElement;
+    checkbox: HTMLInputElement;
+    isSelected: boolean;
+}): void {
+    const target = e.target as HTMLElement;
+    if (target.tagName !== "INPUT") {
+        e.preventDefault();
+        e.stopPropagation();
+        imageItem.checkbox.checked = !imageItem.checkbox.checked;
+        imageItem.checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+}
+
+/**
+ * Updates the selected images count display
+ */
+function updateSelectedCount(): void {
+    let count = 0;
+    
+    for (const group of dialogState.conversations) {
+        for (const imageItem of group.imageItems) {
+            if (imageItem.isSelected) {
+                count++;
+            }
+        }
+    }
+    
+    const countEl = document.getElementById("ref-images-selected-count");
+    const addBtn = document.getElementById("ref-images-add-selected-btn") as HTMLButtonElement;
+    
+    if (countEl) {
+        countEl.textContent = count + " images selected";
+    }
+    
+    if (addBtn) {
+        addBtn.disabled = count === 0;
+    }
+}
+
+/**
+ * Filters conversations by search term
+ * @param {string} searchTerm - Search term
+ */
+function filterConversationsBySearch(searchTerm: string): void {
+    dialogState.searchTerm = searchTerm;
+    
+    const term = searchTerm.toLowerCase().trim();
+    
+    for (const group of dialogState.conversations) {
+        const matches = term.length === 0 || group.title.toLowerCase().includes(term);
+        
+        group.isVisible = matches;
+        group.group.style.display = matches ? "block" : "none";
+        
+        if (!matches && group.isExpanded) {
+            collapseConversation(group);
+        }
+    }
+}
+
+/**
+ * Rebuilds the dialog data structure from OPFS
+ * @returns {Promise<void>}
+ */
+async function rebuildDialogState(): Promise<void> {
+    dialogState.conversations = [];
+    dialogState.searchTerm = "";
+    
+    if (availableImagesCache.length === 0) {
+        availableImagesCache = await getAllAvailableImages();
+    }
+    
+    const groupedByConversation: Record<number, Array<{timestamp: number; imageIndex: number; title: string}>> = {};
+    for (const img of availableImagesCache) {
+        if (!groupedByConversation[img.timestamp]) {
+            groupedByConversation[img.timestamp] = [];
+        }
+        groupedByConversation[img.timestamp].push(img);
+    }
+    
+    const sortedTimestamps = Object.keys(groupedByConversation)
+        .map(Number)
+        .sort(function(a, b) { return b - a; });
+    
+    for (const timestamp of sortedTimestamps) {
+        const images = groupedByConversation[timestamp];
+        if (images.length === 0) continue;
+        
+        const group = await createConversationGroup(timestamp, images);
+        dialogState.conversations.push(group);
+    }
+    
+    dialogState.lastUpdated = Date.now();
+}
+
+/**
+ * Opens the reference images selection dialog
+ */
+export async function openReferenceImagesDialog(): Promise<void> {
+    console.log("Opening reference images dialog");
+    const existingDialog = document.getElementById("ref-images-dialog");
+    if (existingDialog) {
+        existingDialog.remove();
+    }
+    
+    const dialog = cloneTemplate("ref-images-dialog-template", document.body);
+    if (!dialog) return;
+    
+    const modal = new bootstrap.Modal(dialog);
+    
+    const isValid = await isDialogStateValid();
+    
+    if (!isValid) {
+        await rebuildDialogState();
+    }
+    
+    const browseList = document.getElementById("ref-images-browse-list");
+    if (browseList) {
+        for (const group of dialogState.conversations) {
+            browseList.appendChild(group.group);
+        }
+    }
+    
+    const searchInput = dialog.querySelector("#ref-images-search") as HTMLInputElement;
+    if (searchInput) {
+        searchInput.value = dialogState.searchTerm;
+    }
+    
+    filterConversationsBySearch(dialogState.searchTerm);
+    
+    for (const group of dialogState.conversations) {
+        if (group.isExpanded) {
+            expandConversation(group);
+        }
+    }
+    
+    setupReferenceImagesDialogListeners(dialog);
+    
+    modal.show();
+}
+
+/**
+ * Sets up event listeners for the reference images dialog
+ * @param {HTMLElement} dialogElement - The dialog element to search within
+ */
+export function setupReferenceImagesDialogListeners(dialogElement: HTMLElement): void {
+    const uploadBtn = dialogElement.querySelector("#ref-images-upload-btn");
+    const fileInput = dialogElement.querySelector("#ref-images-file-input") as HTMLInputElement | null;
+    const addSelectedBtn = dialogElement.querySelector("#ref-images-add-selected-btn");
+    const searchInput = dialogElement.querySelector("#ref-images-search");
+    const modalElement = dialogElement as HTMLElement & {instance?: import("bootstrap").Modal};
+
+    if (uploadBtn && fileInput) {
+        uploadBtn.addEventListener("click", function() {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener("change", async function() {
+            const file = fileInput.files?.[0];
+            if (file && STATE.currentConversation) {
+                const index = await uploadReferenceImage(STATE.currentConversation.timestamp, file);
+                if (index !== null) {
+                    invalidateDialogState();
+                    await addReferenceImage(STATE.currentConversation.timestamp, index, true);
+                }
+                fileInput.value = "";
+            }
+        });
+    }
+
+    if (addSelectedBtn) {
+        addSelectedBtn.addEventListener("click", async function() {
+            for (const group of dialogState.conversations) {
+                for (const imageItem of group.imageItems) {
+                    if (imageItem.isSelected) {
+                        await addReferenceImage(imageItem.timestamp, imageItem.imageIndex, false);
+                        imageItem.isSelected = false;
+                        imageItem.checkbox.checked = false;
+                    }
+                }
+            }
+            modalElement.instance?.hide();
+        });
+    }
+
+    if (searchInput) {
+        searchInput.addEventListener("input", function(e) {
+            const term = (e.target as HTMLInputElement).value;
+            filterConversationsBySearch(term);
+        });
+    }
+
+    dialogElement.addEventListener("hidden.bs.modal", function() {
+        invalidateDialogState();
+    });
+}
+
+/**
+ * Adds a reference image to the current conversation's reference list and saves conversation
+ * @param {number} conversationTimestamp - Source conversation's timestamp
+ * @param {number} imageIndex - Image index in source conversation
+ * @param {boolean} isReference - Whether this is from the reference directory (negative timestamp in storage)
+ */
+export async function addReferenceImage(conversationTimestamp: number, imageIndex: number, isReference: boolean): Promise<void> {
+    if (!STATE.currentConversation) return;
+
+    STATE.currentConversation.referenceImages ??= [];
+
+    const refImage: ReferenceImage = {
+        conversationTimestamp: isReference ? -conversationTimestamp : conversationTimestamp,
+        imageIndex: imageIndex
+    };
+
+    STATE.currentConversation.referenceImages.push(refImage);
+
+    await saveConversation(STATE.currentConversation.timestamp, STATE.currentConversation);
+
+    renderReferenceImagesToolbar(STATE.currentConversation);
+}
+
+/**
+ * Removes a reference image from the current conversation's reference list and saves conversation
+ * @param {number} index - Index in referenceImages array to remove
+ */
+export async function removeReferenceImage(index: number): Promise<void> {
+    if (!STATE.currentConversation?.referenceImages) return;
+
+    STATE.currentConversation.referenceImages.splice(index, 1);
+
+    await saveConversation(STATE.currentConversation.timestamp, STATE.currentConversation);
+
+    renderReferenceImagesToolbar(STATE.currentConversation);
+}
+
+/**
+ * Gets the data URLs for all reference images in a conversation
+ * @param {ReferenceImage[]} referenceImages - Array of reference image objects
+ * @returns {Promise<string[]>} Array of base64 data URLs
+ */
+export async function getReferenceImagesDataUrls(referenceImages: ReferenceImage[]): Promise<string[]> {
+    const urls: string[] = [];
+
+    for (const refImage of referenceImages) {
+        const isReference = refImage.conversationTimestamp < 0;
+        const timestamp = Math.abs(refImage.conversationTimestamp);
+
+        let dataUrl: string | null = null;
+        if (isReference) {
+            dataUrl = await getReferenceImageDataUrl(timestamp, refImage.imageIndex);
+        } else {
+            dataUrl = await getImageDataURL(refImage.conversationTimestamp, refImage.imageIndex);
+        }
+
+        if (dataUrl) {
+            urls.push(dataUrl);
+        }
+    }
+
+    return urls;
+}
+
+/**
+ * Loads reference images for a conversation and renders the toolbar
+ * @param {Conversation} conversation - Conversation to load reference images for
+ */
+export function loadReferenceImagesToolbar(conversation: Conversation): void {
+    if (conversation.referenceImages && conversation.referenceImages.length > 0) {
+        renderReferenceImagesToolbar(conversation);
+    } else {
+        clearReferenceImagesToolbar();
+    }
 }

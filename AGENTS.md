@@ -199,6 +199,50 @@ entry.response.imageResolutions.push(resolution);
 - **Modals**: Bootstrap modals with `data-bs-dismiss`
 - **Accessibility**: Add `aria-label` for inputs/buttons without labels
 
+### Bootstrap JavaScript Usage - RESTRICTED
+
+**CRITICAL**: Bootstrap JavaScript components should ONLY be used for modal dialogs. All other UI interactions should be implemented directly with captured references and native DOM APIs or helper functions.
+
+**PERMITTED use cases:**
+- Modal dialogs (showing/hiding modals with `bootstrap.Modal`)
+- Modal event handling (`hidden.bs.modal`, etc.)
+- Tooltip initialization for accessibility
+
+**FORBIDDEN use cases:**
+- Collapse components (use class toggling with captured references)
+- Dropdowns (use click handlers with captured references)
+- Toggles (use class toggling with captured references)
+- Any other Bootstrap JavaScript components
+
+**Pattern for non-modal interactions:**
+
+```javascript
+// GOOD - Use captured references with native DOM
+function setupCollapse(reference) {
+    const button = reference.querySelector("button[data-action='toggle']");
+    const collapse = reference.querySelector(".collapse");
+    
+    button.addEventListener("click", async function() {
+        collapse.classList.toggle("show");
+        // logic here
+    });
+}
+
+// BAD - Using Bootstrap JavaScript
+const collapseInstance = new bootstrap.Collapse(collapseElement);
+```
+
+**Helper Function Pattern:**
+For repeated UI interaction patterns, create helper functions instead of using Bootstrap JavaScript:
+
+```javascript
+// GOOD - Helper for toggle interactions
+function toggleElementVisibility(element: HTMLElement, attributeName: string = "show"): boolean {
+    const isExpanded = element.classList.toggle(attributeName);
+    return isExpanded;
+}
+```
+
 ### DOM Insertions - MANDATORY
 
 All DOM insertions MUST use HTML templates with `cloneNode(true)` and follow this exact pattern:
@@ -238,6 +282,7 @@ function addConversationItem(conversation) {
 2. **Templates must have a single interior div** - the template should contain exactly one root element (the `<div>` inside `<template>`)
 3. **Capture reference before DOM insertion** - Always capture `clone.firstElementChild` BEFORE calling `appendChild`, `insertBefore`, or any method that adds the clone to the document
 4. **Use the captured reference** for all subsequent DOM manipulations (adding event listeners, setting content, etc.)
+5. **querySelector usage in template context** - `querySelector` should ONLY be used immediately after cloning a template to obtain references to elements within it. All event handlers and subsequent DOM manipulations MUST use the captured references obtained during template cloning. DO NOT use `querySelector` inside handlers or in any context after the template has been appended to the DOM.
 
 ## 12. Security & Best Practices
 
@@ -268,6 +313,7 @@ Before submitting any code changes, verify:
 - [ ] All templates have descriptive comments
 - [ ] All templates have a single interior div
 - [ ] References captured via clone.firstElementChild before DOM insertion
+- [ ] querySelector only used during template cloning, not in handlers
 
 By following these guidelines, agents maintain a clean, maintainable, and well-documented codebase.
 

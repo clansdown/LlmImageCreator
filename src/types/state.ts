@@ -3,9 +3,15 @@ export interface Message {
     content: string;
 }
 
+export interface ReferenceImage {
+    conversationTimestamp: number;
+    imageIndex: number;
+}
+
 export interface Conversation {
     timestamp: number;
     entries: ConversationEntry[];
+    referenceImages?: ReferenceImage[];
 }
 
 export interface ConversationEntry {
@@ -19,6 +25,7 @@ export interface ConversationMessage {
     seed: number;
     modelId?: string;
     modelName?: string;
+    referenceImages?: ReferenceImage[];
 }
 
 export interface ResponseData {

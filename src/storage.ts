@@ -26,6 +26,7 @@ import type { Conversation, ConversationSummary } from './types/state';
 const STORAGE_PREFERENCES_DIR: string = "preferences";
 const STORAGE_CONVERSATIONS_DIR: string = "conversations";
 const STORAGE_IMAGES_DIR: string = "images";
+const STORAGE_REFERENCE_DIR: string = "reference";
 
 /**
  * Gets the OPFS root directory handle
@@ -143,19 +144,21 @@ export async function clearAllPreferences(): Promise<void> {
 
 /**
  * Creates a new conversation directory
+ * @param {number} [timestamp] - Optional timestamp, will generate if not provided
  * @returns {Promise<number>} Epoch timestamp for the conversation
  */
-export async function createConversation(): Promise<number> {
-    const timestamp = Math.floor(Date.now() / 1000);
+export async function createConversation(timestamp?: number): Promise<number> {
+    const ts = timestamp ?? Math.floor(Date.now() / 1000);
     try {
         const root = await getOPFSHandle();
         const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
-        const convDir = await ensureDirectory(convsDir, String(timestamp));
+        const convDir = await ensureDirectory(convsDir, String(ts));
         await ensureDirectory(convDir, STORAGE_IMAGES_DIR);
-        return timestamp;
+        await ensureDirectory(convDir, STORAGE_REFERENCE_DIR);
+        return ts;
     } catch (e) {
         console.error("Error creating conversation:", e);
-        return timestamp;
+        return ts;
     }
 }
 
@@ -405,5 +408,216 @@ export async function loadSummary(timestamp: number): Promise<ConversationSummar
         return JSON.parse(content) as ConversationSummary;
     } catch (e) {
         return null;
+    }
+}
+
+/**
+ * Gets or creates the reference directory for a conversation
+ * @param {number} timestamp - Conversation timestamp
+ * @returns {Promise<FileSystemDirectoryHandle>} Reference directory handle
+ */
+export async function getReferenceDirectory(timestamp: number): Promise<FileSystemDirectoryHandle> {
+    const root = await getOPFSHandle();
+    const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
+    const convDir = await convsDir.getDirectoryHandle(String(timestamp));
+    return await ensureDirectory(convDir, STORAGE_REFERENCE_DIR);
+}
+
+/**
+ * Uploads an image file to the reference directory of a conversation
+ * @param {number} timestamp - Conversation timestamp
+ * @param {File} file - File to upload
+ * @returns {Promise<number | null>} Image index number, or null on error
+ */
+export async function uploadReferenceImage(timestamp: number, file: File): Promise<number | null> {
+    try {
+        const refDir = await getReferenceDirectory(timestamp);
+        const nextIndex = await getNextReferenceImageIndex(refDir);
+
+        const arrayBuffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+
+        const fileHandle = await refDir.getFileHandle(String(nextIndex) + ".png", { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(bytes);
+        await writable.close();
+
+        return nextIndex;
+    } catch (e) {
+        console.error("Error uploading reference image:", e);
+        return null;
+    }
+}
+
+/**
+ * Gets the next available image index for reference images
+ * @param {FileSystemDirectoryHandle} refDir - Reference directory handle
+ * @returns {Promise<number>} Next image number
+ */
+async function getNextReferenceImageIndex(refDir: FileSystemDirectoryHandle): Promise<number> {
+    let maxIndex = 0;
+    try {
+        for await (const entry of (refDir as FileSystemDirectoryHandle & { values(): AsyncIterableIterator<FileSystemHandle> }).values()) {
+            if (entry.kind === "file" && entry.name.endsWith(".png")) {
+                const num = parseInt(entry.name.replace(".png", ""), 10);
+                if (!isNaN(num) && num > maxIndex) {
+                    maxIndex = num;
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Error getting next reference image index:", e);
+    }
+    return maxIndex + 1;
+}
+
+/**
+ * Gets a reference image from a conversation
+ * @param {number} timestamp - Conversation timestamp
+ * @param {number} imageIndex - Image index number
+ * @returns {Promise<Blob | null>} Image blob
+ */
+export async function getReferenceImage(timestamp: number, imageIndex: number): Promise<Blob | null> {
+    try {
+        const refDir = await getReferenceDirectory(timestamp);
+        const fileHandle = await refDir.getFileHandle(String(imageIndex) + ".png");
+        return await fileHandle.getFile();
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * Gets the data URL for a reference image
+ * @param {number} timestamp - Conversation timestamp
+ * @param {number} imageIndex - Image index number
+ * @returns {Promise<string | null>} Base64 data URL
+ */
+export async function getReferenceImageDataUrl(timestamp: number, imageIndex: number): Promise<string | null> {
+    try {
+        const blob = await getReferenceImage(timestamp, imageIndex);
+        if (!blob) return null;
+        return new Promise<string | null>(function(resolve) {
+            const reader = new FileReader();
+            reader.onloadend = function() {
+                resolve(reader.result as string);
+            };
+            reader.onerror = function() {
+                resolve(null);
+            };
+            reader.readAsDataURL(blob);
+        });
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * Lists all reference images in a conversation
+ * @param {number} timestamp - Conversation timestamp
+ * @returns {Promise<number[]>} Array of image indices
+ */
+export async function listReferenceImages(timestamp: number): Promise<number[]> {
+    try {
+        const refDir = await getReferenceDirectory(timestamp);
+        const indices: number[] = [];
+        for await (const entry of (refDir as FileSystemDirectoryHandle & { values(): AsyncIterableIterator<FileSystemHandle> }).values()) {
+            if (entry.kind === "file" && entry.name.endsWith(".png")) {
+                const num = parseInt(entry.name.replace(".png", ""), 10);
+                if (!isNaN(num)) {
+                    indices.push(num);
+                }
+            }
+        }
+        indices.sort(function(a: number, b: number): number { return a - b; });
+        return indices;
+    } catch (e) {
+        return [];
+    }
+}
+
+/**
+ * Lists all images in a conversation's images directory
+ * @param {number} timestamp - Conversation timestamp
+ * @returns {Promise<number[]>} Array of image indices that actually exist
+ */
+export async function listImages(timestamp: number): Promise<number[]> {
+    try {
+        const root = await getOPFSHandle();
+        const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
+        const convDir = await convsDir.getDirectoryHandle(String(timestamp));
+        const imagesDir = await ensureDirectory(convDir, STORAGE_IMAGES_DIR);
+        
+        const indices: number[] = [];
+        for await (const entry of (imagesDir as FileSystemDirectoryHandle & { values(): AsyncIterableIterator<FileSystemHandle> }).values()) {
+            if (entry.kind === "file" && entry.name.endsWith(".png")) {
+                const num = parseInt(entry.name.replace(".png", ""), 10);
+                if (!isNaN(num)) {
+                    indices.push(num);
+                }
+            }
+        }
+        indices.sort(function(a: number, b: number): number { return a - b; });
+        return indices;
+    } catch (e) {
+        return [];
+    }
+}
+
+/**
+ * Deletes a reference image from a conversation
+ * @param {number} timestamp - Conversation timestamp
+ * @param {number} imageIndex - Image index number
+ * @returns {Promise<void>}
+ */
+export async function deleteReferenceImage(timestamp: number, imageIndex: number): Promise<void> {
+    try {
+        const refDir = await getReferenceDirectory(timestamp);
+        await refDir.removeEntry(String(imageIndex) + ".png");
+    } catch (e) {
+        console.error("Error deleting reference image:", e);
+    }
+}
+
+/**
+ * Gets all available images from all conversations for the reference image dialog
+ * @returns {Promise<Array<{timestamp: number; imageIndex: number; title: string}>>} Array of image info
+ */
+export async function getAllAvailableImages(): Promise<Array<{timestamp: number; imageIndex: number; title: string}>> {
+    const allImages: Array<{timestamp: number; imageIndex: number; title: string}> = [];
+    const timestamps = await listConversations();
+
+    for (const timestamp of timestamps) {
+        const summary = await loadSummary(timestamp);
+        const title = summary?.title || "Conversation " + timestamp;
+
+        const regularImages = await listImages(timestamp);
+        for (const i of regularImages) {
+            allImages.push({ timestamp: timestamp, imageIndex: i, title: title });
+        }
+
+        const refImages = await listReferenceImages(timestamp);
+        for (const i of refImages) {
+            allImages.push({ timestamp: timestamp, imageIndex: i, title: title + " (Reference)" });
+        }
+    }
+
+    return allImages;
+}
+
+/**
+ * Gets the next image index for regular images via directory handle
+ * @param {number} timestamp - Conversation timestamp
+ * @returns {Promise<number>} Next image number
+ */
+async function getNextImageIndexViaDir(timestamp: number): Promise<number> {
+    try {
+        const root = await getOPFSHandle();
+        const convsDir = await ensureDirectory(root, STORAGE_CONVERSATIONS_DIR);
+        const convDir = await convsDir.getDirectoryHandle(String(timestamp));
+        const imagesDir = await ensureDirectory(convDir, STORAGE_IMAGES_DIR);
+        return await getNextImageIndex(imagesDir);
+    } catch (e) {
+        return 1;
     }
 }

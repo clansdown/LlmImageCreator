@@ -9,7 +9,7 @@ import { fetchModels, fetchBalance, generateImage, getGenerationInfo } from './o
 import { savePreference, getPreference, listConversations, createConversation, loadConversation, saveConversation, deletePreference, getImage, saveImage, saveSummary, loadSummary } from './storage';
 import * as ui from './ui';
 import { generateRandomSeed, generateConversationTitle, updateConversationSummary, getApiKey } from './util';
-import type { Conversation, ConversationSummary, ConversationEntry, Message } from './types/state';
+import type { Conversation, ConversationSummary, ConversationEntry, Message, ReferenceImage } from './types/state';
 import type { VisionModel, ChatCompletionResponse, ImageConfig, BalanceInfo, GenerationInfo, Message as ApiMessage } from './types/api';
 
 export { getUpscalingModel };
@@ -110,6 +110,13 @@ export function isOnline(): boolean {
  */
 export function init(): void {
     console.log("Initializing application");
+
+    STATE.currentConversation = {
+        timestamp: 0,
+        entries: [],
+        referenceImages: []
+    };
+
     setupEventListeners();
     ui.initSettingsDialog();
     loadPreferencesAndInitialize();
@@ -118,6 +125,7 @@ export function init(): void {
         ui.populateConversationList(timestamps);
     });
 
+    ui.renderReferenceImagesToolbar(STATE.currentConversation);
     ui.initTooltips();
     ui.expandTextarea();
 
@@ -328,6 +336,9 @@ export async function saveImagesToConversation(timestamp: number, response: Chat
             filenames.push(String(index));
         }
     }
+    if (filenames.length > 0) {
+        ui.invalidateDialogState();
+    }
     return filenames;
 }
 
@@ -343,7 +354,7 @@ export async function saveImagesToConversation(timestamp: number, response: Chat
  * @param {string} systemPrompt - System prompt used for generation
  * @returns {ConversationEntry} Created conversation entry
  */
-export function createConversationEntry(prompt: string, seed: number, response: ChatCompletionResponse, imageFilenames: string[], imageConfig: ImageConfig, modelId: string, modelName: string, systemPrompt: string): ConversationEntry {
+export function createConversationEntry(prompt: string, seed: number, response: ChatCompletionResponse, imageFilenames: string[], imageConfig: ImageConfig, modelId: string, modelName: string, systemPrompt: string, referenceImages?: ReferenceImage[]): ConversationEntry {
     const message = response.choices[0].message;
     const resolution = imageConfig && imageConfig.imageSize ? imageConfig.imageSize : "1K";
     const resolutions: string[] = [];
@@ -356,7 +367,8 @@ export function createConversationEntry(prompt: string, seed: number, response: 
             text: prompt,
             seed: seed,
             modelId: modelId,
-            modelName: modelName
+            modelName: modelName,
+            referenceImages: referenceImages
         },
         response: {
             text: message.content || null,
@@ -434,7 +446,8 @@ export async function handleImageGenerationWithSpinner(
     conversationHistory: Array<{role: string, content: string}>,
     imageConfig: ImageConfig,
     seed?: number,
-    imageInput?: {imageData: string}
+    imageInput?: {imageData: string},
+    referenceImages?: ReferenceImage[]
 ): Promise<void> {
     const resolution = imageConfig.imageSize;
     const isNewEntry = targetEntry === null;
@@ -445,7 +458,8 @@ export async function handleImageGenerationWithSpinner(
             message: {
                 systemPrompt: systemPrompt || "",
                 text: prompt,
-                seed: seed as number
+                seed: seed as number,
+                referenceImages: referenceImages
             },
             response: {
                 text: null,
@@ -466,8 +480,13 @@ export async function handleImageGenerationWithSpinner(
 
     await ui.renderConversation(conversation);
 
+    let referenceImagesDataUrls: string[] = [];
+    if (referenceImages && referenceImages.length > 0) {
+        referenceImagesDataUrls = await ui.getReferenceImagesDataUrls(referenceImages);
+    }
+
     try {
-        const response = await generateImage(apiKey, prompt, model, systemPrompt, conversationHistory as ApiMessage[], imageConfig, seed, imageInput);
+        const response = await generateImage(apiKey, prompt, model, systemPrompt, conversationHistory as ApiMessage[], imageConfig, seed, imageInput, referenceImagesDataUrls);
 
         if (!response.choices || response.choices.length === 0) {
             throw new Error("No response from API");
@@ -489,7 +508,7 @@ export async function handleImageGenerationWithSpinner(
         if (isNewEntry) {
             const modelId = response.model;
             const modelName = getModelName(modelId);
-            const entry = createConversationEntry(prompt, seed as number, response, imageFilenames, imageConfig, modelId, modelName, systemPrompt || "");
+            const entry = createConversationEntry(prompt, seed as number, response, imageFilenames, imageConfig, modelId, modelName, systemPrompt || "", referenceImages);
             conversation.entries[entryIndex] = entry;
         } else {
             const placeholderIdx = targetEntry.response.imageFilenames.indexOf("generating");
@@ -504,6 +523,9 @@ export async function handleImageGenerationWithSpinner(
         }
 
         await saveConversation(conversation.timestamp, conversation);
+        if (imageFilenames.length > 0) {
+            ui.invalidateDialogState();
+        }
         await ui.renderConversation(conversation);
     } catch (error) {
         console.error("Error generating image:", error);
@@ -571,13 +593,16 @@ export async function handleGenerate(): Promise<void> {
     }
 
     const seed = generateRandomSeed();
-    const timestamp = Math.floor(Date.now() / 1000);
+    let timestamp = Math.floor(Date.now() / 1000);
 
-    if (!STATE.currentConversation) {
+    if (!STATE.currentConversation || STATE.currentConversation.timestamp === 0) {
         STATE.currentConversation = {
             timestamp: timestamp,
-            entries: []
+            entries: [],
+            referenceImages: STATE.currentConversation?.referenceImages ?? []
         };
+    } else {
+        timestamp = STATE.currentConversation.timestamp;
     }
 
     const resolution = ui.getResolution();
@@ -586,6 +611,8 @@ export async function handleGenerate(): Promise<void> {
         imageSize: resolution as ImageConfig['imageSize'],
         aspectRatio: aspectRatio as ImageConfig['aspectRatio']
     };
+
+    const referenceImages = STATE.currentConversation?.referenceImages ?? [];
 
     STATE.conversationHistory.push({
         role: "user",
@@ -608,7 +635,8 @@ export async function handleGenerate(): Promise<void> {
             STATE.conversationHistory,
             imageConfig,
             seed,
-            undefined
+            undefined,
+            referenceImages
         );
     }).then(function() {
         ui.clearUserInput();
@@ -670,6 +698,7 @@ export async function handleRegenerateWithNewSeed(entryIndex: number, imageIndex
 
     const newSeed = generateRandomSeed();
     const prompt = entry.message.text;
+    const referenceImages = entry.message.referenceImages;
 
     STATE.isGenerating = true;
     ui.setLoadingState(true);
@@ -684,7 +713,8 @@ export async function handleRegenerateWithNewSeed(entryIndex: number, imageIndex
         [],
         imageConfig,
         newSeed,
-        undefined
+        undefined,
+        referenceImages
     );
 }
 
@@ -736,6 +766,8 @@ export async function handleRegenerateLarger(entryIndex: number, imageIndex: num
             imageSize: "4K"
         };
 
+        const referenceImages = entry.message.referenceImages;
+
         await handleImageGenerationWithSpinner(
             apiKey,
             STATE.currentConversation,
@@ -746,7 +778,8 @@ export async function handleRegenerateLarger(entryIndex: number, imageIndex: num
             [],
             imageConfig,
             undefined,
-            { imageData: dataUrl }
+            { imageData: dataUrl },
+            referenceImages
         );
     } catch (error) {
         console.error("Error upscaling image:", error);
