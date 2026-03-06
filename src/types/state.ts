@@ -28,12 +28,24 @@ export interface ConversationMessage {
     referenceImages?: ReferenceImage[];
 }
 
+export interface ImageMetadata {
+    tags: string[];
+}
+
 export interface ResponseData {
     text: string | null;
     imageFilenames: string[];
     imageResolutions: Array<'1K' | '2K' | '4K'>;
     responseData: unknown;
     generationData: unknown;
+    imageMetadata?: ImageMetadata[];
+}
+
+export interface TaggedImage {
+    conversationTimestamp: number;
+    imageIndex: number;
+    tags: string[];
+    conversationTitle?: string;
 }
 
 export interface ConversationSummary {

@@ -126,7 +126,6 @@ export function init(): void {
     });
 
     ui.renderReferenceImagesToolbar(STATE.currentConversation);
-    ui.initTooltips();
     ui.expandTextarea();
 
     if (!navigator.onLine) {
@@ -173,17 +172,23 @@ export function setupEventListeners(): void {
         userInput.addEventListener("focus", function() {
             ui.expandTextarea();
         });
-        userInput.addEventListener("blur", function() {
-            const hasMessages = STATE.currentConversation?.entries?.length ?? 0 > 0;
-            if (hasMessages) {
-                ui.shrinkTextarea();
-            }
-        });
     }
 
     const generateButton = document.getElementById("generate-button");
     if (generateButton) {
         generateButton.addEventListener("click", handleGenerate);
+    }
+
+    if (userInput && generateButton) {
+        userInput.addEventListener("blur", function(e: FocusEvent) {
+            if (e.relatedTarget === generateButton) {
+                return;
+            }
+            const hasMessages = STATE.currentConversation?.entries?.length ?? 0 > 0;
+            if (hasMessages) {
+                ui.shrinkTextarea();
+            }
+        });
     }
 
     const newConversationBtn = document.getElementById("new-conversation-btn");
@@ -361,6 +366,11 @@ export function createConversationEntry(prompt: string, seed: number, response: 
     for (let i = 0; i < imageFilenames.length; i++) {
         resolutions.push(resolution);
     }
+    /** @type {Array<{tags: string[]}>} */
+    const imageMetadata: Array<{tags: string[]}> = [];
+    for (let i = 0; i < imageFilenames.length; i++) {
+        imageMetadata.push({ tags: [] });
+    }
     const entry: ConversationEntry = {
         message: {
             systemPrompt: systemPrompt,
@@ -375,7 +385,8 @@ export function createConversationEntry(prompt: string, seed: number, response: 
             imageFilenames: imageFilenames,
             imageResolutions: resolutions as Array<'1K' | '2K' | '4K'>,
             responseData: response,
-            generationData: null
+            generationData: null,
+            imageMetadata: imageMetadata
         }
     };
     return entry;
@@ -434,6 +445,8 @@ export async function initializeConversationSummary(timestamp: number): Promise<
  * @param {ImageConfig} imageConfig - Image configuration
  * @param {number | undefined} seed - Random seed for generation
  * @param {{imageData: string} | undefined} imageInput - Optional image input for upscaling
+ * @param {ReferenceImage[] | undefined} referenceImages - Optional reference images
+ * @param {number | undefined} targetImageIndex - Optional target index for x5 regeneration
  * @returns {Promise<void>}
  */
 export async function handleImageGenerationWithSpinner(
@@ -447,7 +460,8 @@ export async function handleImageGenerationWithSpinner(
     imageConfig: ImageConfig,
     seed?: number,
     imageInput?: {imageData: string},
-    referenceImages?: ReferenceImage[]
+    referenceImages?: ReferenceImage[],
+    targetImageIndex?: number
 ): Promise<void> {
     const resolution = imageConfig.imageSize;
     const isNewEntry = targetEntry === null;
@@ -466,16 +480,23 @@ export async function handleImageGenerationWithSpinner(
                 imageFilenames: ["generating"],
                 imageResolutions: [resolution as '1K' | '2K' | '4K'],
                 responseData: null,
-                generationData: null
+                generationData: null,
+                imageMetadata: [{ tags: [] }]
             }
         };
         conversation.entries.push(placeholderEntry);
         entryIndex = conversation.entries.length - 1;
     } else {
-        targetEntry.response.imageFilenames.push("generating");
-        targetEntry.response.imageResolutions ??= [];
-        targetEntry.response.imageResolutions.push(resolution as '1K' | '2K' | '4K');
-        entryIndex = conversation.entries.indexOf(targetEntry);
+        if (targetImageIndex !== undefined) {
+            entryIndex = conversation.entries.indexOf(targetEntry);
+        } else {
+            targetEntry.response.imageFilenames.push("generating");
+            targetEntry.response.imageResolutions ??= [];
+            targetEntry.response.imageResolutions.push(resolution as '1K' | '2K' | '4K');
+            targetEntry.response.imageMetadata ??= [];
+            targetEntry.response.imageMetadata.push({ tags: [] });
+            entryIndex = conversation.entries.indexOf(targetEntry);
+        }
     }
 
     await ui.renderConversation(conversation);
@@ -511,12 +532,24 @@ export async function handleImageGenerationWithSpinner(
             const entry = createConversationEntry(prompt, seed as number, response, imageFilenames, imageConfig, modelId, modelName, systemPrompt || "", referenceImages);
             conversation.entries[entryIndex] = entry;
         } else {
-            const placeholderIdx = targetEntry.response.imageFilenames.indexOf("generating");
+            const placeholderIdx = targetImageIndex !== undefined 
+                ? targetImageIndex 
+                : targetEntry.response.imageFilenames.indexOf("generating");
             if (placeholderIdx !== -1) {
                 targetEntry.response.imageFilenames[placeholderIdx] = imageFilenames[0];
+                targetEntry.response.imageMetadata ??= [];
+                while (targetEntry.response.imageMetadata.length <= placeholderIdx) {
+                    targetEntry.response.imageMetadata.push({ tags: [] });
+                }
+                if (!targetEntry.response.imageMetadata[placeholderIdx]) {
+                    targetEntry.response.imageMetadata[placeholderIdx] = { tags: [] };
+                } else {
+                    targetEntry.response.imageMetadata[placeholderIdx] = { tags: targetEntry.response.imageMetadata[placeholderIdx].tags };
+                }
                 for (let i = 1; i < imageFilenames.length; i++) {
                     targetEntry.response.imageFilenames.push(imageFilenames[i]);
                     targetEntry.response.imageResolutions.push(resolution as '1K' | '2K' | '4K');
+                    targetEntry.response.imageMetadata.push({ tags: [] });
                 }
             }
             targetEntry.response.responseData = response;
@@ -621,6 +654,7 @@ export async function handleGenerate(): Promise<void> {
 
     STATE.isGenerating = true;
     ui.setLoadingState(true);
+    ui.shrinkTextarea();
 
     const systemPrompt = await ui.getSystemPrompt();
 
@@ -640,7 +674,6 @@ export async function handleGenerate(): Promise<void> {
         );
     }).then(function() {
         ui.clearUserInput();
-        ui.shrinkTextarea();
 
         if (STATE.currentConversation!.entries.length === 1) {
             initializeConversationSummary(STATE.currentConversation!.timestamp).then(function() {
@@ -680,8 +713,15 @@ export async function handleGenerate(): Promise<void> {
  * Handles regenerating an image with a new seed
  * @param {number} entryIndex - Index of the entry in conversation
  * @param {number} imageIndex - Index of the image within the entry
+ * @param {ReferenceImage | undefined} additionalReferenceImage - Optional additional reference image to include
+ * @param {number | undefined} targetImageIndex - Optional pre-allocated placeholder index for parallel execution
  */
-export async function handleRegenerateWithNewSeed(entryIndex: number, imageIndex: number): Promise<void> {
+export async function handleRegenerateWithNewSeed(
+    entryIndex: number, 
+    imageIndex: number,
+    additionalReferenceImage?: ReferenceImage,
+    targetImageIndex?: number
+): Promise<void> {
     if (!STATE.currentConversation || !STATE.currentConversation.entries[entryIndex]) return;
     const entry = STATE.currentConversation.entries[entryIndex];
 
@@ -689,7 +729,7 @@ export async function handleRegenerateWithNewSeed(entryIndex: number, imageIndex
     if (!apiKey) return;
 
     const aspectRatio = ui.getAspectRatio();
-    const resolution = entry.response.imageResolutions?.[imageIndex] ?? "1K";
+    const resolution = entry.response.imageResolutions?.[imageIndex] ?? ui.getResolution();
 
     const imageConfig: ImageConfig = {
         imageSize: resolution as ImageConfig['imageSize'],
@@ -698,7 +738,12 @@ export async function handleRegenerateWithNewSeed(entryIndex: number, imageIndex
 
     const newSeed = generateRandomSeed();
     const prompt = entry.message.text;
-    const referenceImages = entry.message.referenceImages;
+    
+    // Combine existing reference images with additional reference if provided
+    const existingRefImages = entry.message.referenceImages || [];
+    const combinedRefImages = additionalReferenceImage
+        ? [...existingRefImages, additionalReferenceImage]
+        : existingRefImages;
 
     STATE.isGenerating = true;
     ui.setLoadingState(true);
@@ -714,7 +759,8 @@ export async function handleRegenerateWithNewSeed(entryIndex: number, imageIndex
         imageConfig,
         newSeed,
         undefined,
-        referenceImages
+        combinedRefImages,
+        targetImageIndex
     );
 }
 
@@ -791,5 +837,77 @@ export async function handleRegenerateLarger(entryIndex: number, imageIndex: num
         }
         STATE.isGenerating = false;
         ui.setLoadingState(false);
+    }
+}
+
+/**
+ * Handles regenerating an image 5 times with random seeds in parallel
+ * @param {number} entryIndex - Index of the entry in conversation
+ * @param {number} imageIndex - Index of the image within the entry
+ * @returns {Promise<void>}
+ */
+export async function handleRegenerateX5(entryIndex: number, imageIndex: number): Promise<void> {
+    if (!STATE.currentConversation || !STATE.currentConversation.entries[entryIndex]) return;
+    const entry = STATE.currentConversation.entries[entryIndex];
+
+    const apiKey = ui.getApiKey();
+    if (!apiKey) return;
+
+    const resolution = entry.response.imageResolutions?.[imageIndex] ?? ui.getResolution();
+
+    // Create additional reference image from current image
+    const filename = entry.response.imageFilenames[imageIndex];
+    const storageIndex = parseInt(filename, 10);
+    const additionalRefImage: ReferenceImage = {
+        conversationTimestamp: STATE.currentConversation.timestamp,
+        imageIndex: storageIndex
+    };
+
+    // Pre-allocate 5 placeholders
+    const placeholderIndices: number[] = [];
+    for (let i = 0; i < 5; i++) {
+        entry.response.imageFilenames.push("generating");
+        entry.response.imageResolutions ??= [];
+        entry.response.imageResolutions.push(resolution as '1K' | '2K' | '4K');
+        entry.response.imageMetadata ??= [];
+        entry.response.imageMetadata.push({ tags: [] });
+        placeholderIndices.push(entry.response.imageFilenames.length - 1);
+    }
+
+    await saveConversation(STATE.currentConversation.timestamp, STATE.currentConversation);
+    await ui.renderConversation(STATE.currentConversation);
+
+    STATE.isGenerating = true;
+    ui.setLoadingState(true);
+
+    try {
+        // Call handleRegenerateWithNewSeed 5 times in parallel
+        const promises: Promise<void>[] = [];
+        for (let i = 0; i < 5; i++) {
+            const capturedPlaceholderIndex = placeholderIndices[i];
+
+            promises.push(
+                handleRegenerateWithNewSeed(
+                    entryIndex,
+                    imageIndex,
+                    additionalRefImage,
+                    capturedPlaceholderIndex
+                )
+            );
+        }
+
+        await Promise.all(promises);
+    } finally {
+        STATE.isGenerating = false;
+        ui.setLoadingState(false);
+
+        const balanceApiKey = ui.getApiKey();
+        if (balanceApiKey) {
+            fetchBalance(balanceApiKey).then(function(balance: BalanceInfo) {
+                ui.updateBalanceDisplay(balance);
+            }).catch(function() {
+                ui.updateBalanceDisplay(null, "Balance unavailable");
+            });
+        }
     }
 }

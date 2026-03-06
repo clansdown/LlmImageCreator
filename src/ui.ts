@@ -8,12 +8,13 @@ import { SYSTEM_PROMPT } from './prompt';
 import { savePreference, getPreference, loadConversation, getImage, loadSummary, listConversations, getReferenceImageDataUrl, getAllAvailableImages, uploadReferenceImage, saveConversation, getImageDataURL } from './storage';
 import { generateConversationTitle, getApiKey, updateConversationSummary, cloneTemplate } from './util';
 import { fetchVisionModels } from './openrouter';
-import { handleRegenerateWithNewSeed, handleRegenerateLarger, getUpscalingModel } from './agent';
+import { handleRegenerateWithNewSeed, handleRegenerateLarger, handleRegenerateX5, getUpscalingModel } from './agent';
+import { getAllTags, getTagsForImage, setTags, ensureMetadataArray } from './tagManager';
 import type { Conversation, ConversationSummary, ReferenceImage } from './types/state';
 import type { VisionModel, ChatCompletionResponse } from './types/api';
 import type { ErrorInfo } from './types/error';
 
-export { getApiKey, updateConversationSummary, getUpscalingModel, handleRegenerateWithNewSeed, handleRegenerateLarger };
+export { getApiKey, updateConversationSummary, getUpscalingModel, handleRegenerateWithNewSeed, handleRegenerateLarger, handleRegenerateX5 };
 
 /** @type {Array<{timestamp: number; imageIndex: number; title: string}>} */
 let availableImagesCache: Array<{timestamp: number; imageIndex: number; title: string}> = [];
@@ -58,6 +59,7 @@ let availableImagesCache: Array<{timestamp: number; imageIndex: number; title: s
 /** @type {DialogState} */
 let dialogState: {
     searchTerm: string;
+    tagFilter: string;
     conversations: Array<{
         timestamp: number;
         title: string;
@@ -75,6 +77,7 @@ let dialogState: {
             timestamp: number;
             imageIndex: number;
             title: string;
+            tags: string[];
             item: HTMLElement;
             checkbox: HTMLInputElement;
             img: HTMLImageElement;
@@ -86,6 +89,7 @@ let dialogState: {
     lastUpdated: number;
 } = {
     searchTerm: "",
+    tagFilter: "",
     conversations: [],
     lastUpdated: 0
 };
@@ -312,12 +316,16 @@ export function clearConversationHistory(): void {
  * Starts a new conversation by clearing current view for clean slate
  */
 export async function handleNewConversation(): Promise<void> {
-    STATE.currentConversation = null;
+    STATE.currentConversation = {
+        timestamp: 0,
+        entries: [],
+        referenceImages: []
+    };
     STATE.conversationHistory = [];
     clearConversationArea();
     clearUserInput();
     expandTextarea();
-    clearReferenceImagesToolbar();
+    renderReferenceImagesToolbar(STATE.currentConversation);
 
     const historyContainer = document.getElementById("conversation-history");
     if (historyContainer) {
@@ -325,26 +333,6 @@ export async function handleNewConversation(): Promise<void> {
         selectedItems.forEach(function(item: Element) {
             item.classList.remove("selected");
         });
-    }
-}
-
-/**
- * Initializes Bootstrap tooltips for all elements with data-bs-toggle="tooltip"
- */
-export function initTooltips(): void {
-    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-    tooltipTriggerList.map(function (tooltipTriggerEl: Element) {
-        return new bootstrap.Tooltip(tooltipTriggerEl);
-    });
-}
-
-/**
- * Initializes a Bootstrap tooltip for a single element
- * @param {HTMLElement} element - Element to initialize tooltip for
- */
-export function initTooltipForElement(element: HTMLElement): void {
-    if (element && element.getAttribute("data-bs-toggle") === "tooltip") {
-        new bootstrap.Tooltip(element);
     }
 }
 
@@ -988,18 +976,40 @@ function renderExistingImages(
                             URL.revokeObjectURL(url);
                         }, 100);
                     });
-                });
-                initTooltipForElement(downloadBtn);
+                    });
 
-                const regenerateNewBtn = imgItemContainer.querySelector(".regenerate-new-btn") as HTMLButtonElement;
-                regenerateNewBtn.dataset.entryIndex = String(entryIndex);
-                regenerateNewBtn.dataset.imageIndex = String(imgIndex);
-                regenerateNewBtn.addEventListener("click", function() {
-                    handleRegenerateWithNewSeed(entryIndex, imgIndex);
-                });
-                initTooltipForElement(regenerateNewBtn);
+                    const tagBtn = imgItemContainer.querySelector(".tag-btn") as HTMLButtonElement;
+                    tagBtn.dataset.conversationTimestamp = String(conversationTimestamp);
+                    tagBtn.dataset.entryIndex = String(entryIndex);
+                    tagBtn.dataset.imageIndex = String(imgIndex);
+                    tagBtn.addEventListener("click", function() {
+                        const ts = parseInt(String(conversationTimestamp), 10);
+                        const eIdx = parseInt(String(entryIndex), 10);
+                        const iIdx = parseInt(String(imgIndex), 10);
+                        openTagEditor(ts, eIdx, iIdx);
+                    });
 
-                const regenerateLargerBtn = imgItemContainer.querySelector(".regenerate-larger-btn") as HTMLButtonElement;
+                    const regenerateNewBtn = imgItemContainer.querySelector(".regenerate-new-btn") as HTMLButtonElement;
+                    regenerateNewBtn.dataset.entryIndex = String(entryIndex);
+                    regenerateNewBtn.dataset.imageIndex = String(imgIndex);
+                    regenerateNewBtn.addEventListener("click", function() {
+                        const filename = entry.response.imageFilenames[imgIndex];
+                        const storageIndex = parseInt(filename, 10);
+                        const additionalRef: ReferenceImage = {
+                            conversationTimestamp: conversationTimestamp,
+                            imageIndex: storageIndex
+                        };
+                        handleRegenerateWithNewSeed(entryIndex, imgIndex, additionalRef);
+                    });
+
+                    const regenerateX5Btn = imgItemContainer.querySelector(".regenerate-x5-btn") as HTMLButtonElement;
+                    regenerateX5Btn.dataset.entryIndex = String(entryIndex);
+                    regenerateX5Btn.dataset.imageIndex = String(imgIndex);
+                    regenerateX5Btn.addEventListener("click", function() {
+                        handleRegenerateX5(entryIndex, imgIndex);
+                    });
+
+                    const regenerateLargerBtn = imgItemContainer.querySelector(".regenerate-larger-btn") as HTMLButtonElement;
                 const isDisabled = (resolution === "4K") || !upscalingModel;
                 regenerateLargerBtn.disabled = isDisabled;
                 if (!upscalingModel) {
@@ -1010,7 +1020,12 @@ function renderExistingImages(
                 regenerateLargerBtn.addEventListener("click", function() {
                     handleRegenerateLarger(entryIndex, imgIndex);
                 });
-                initTooltipForElement(regenerateLargerBtn);
+
+                const tagsContainer = imgItemContainer.querySelector(".image-tags-container") as HTMLElement;
+                const metadata = entry.response.imageMetadata?.[imgIndex];
+                if (metadata && metadata.tags.length > 0) {
+                    renderImageTags(tagsContainer, metadata.tags, conversationTimestamp, entryIndex, imgIndex);
+                }
             });
         }
     });
@@ -1084,9 +1099,6 @@ export async function renderMessageEntry(entry: Conversation['entries'][0], inde
     const btnText = messageEntry.querySelector(".btn-text") as HTMLElement;
     const copyLlmBtn = messageEntry.querySelector(".copy-llm-btn") as HTMLButtonElement;
     
-    initTooltipForElement(llmTextBtn);
-    initTooltipForElement(copyLlmBtn);
-    
     if (entry.response.text) {
         (messageEntry.querySelector(".llm-text-body") as HTMLElement).textContent = entry.response.text;
         
@@ -1122,10 +1134,28 @@ export async function renderMessageEntry(entry: Conversation['entries'][0], inde
         const userInput = document.getElementById("user-input");
         if (userInput) {
             (userInput as HTMLTextAreaElement).value = entry.message.text;
+            userInput.dispatchEvent(new Event("input", { bubbles: true }));
             (userInput as HTMLTextAreaElement).focus();
         }
     });
-    initTooltipForElement(copyToTextareaBtn);
+
+    const copyPromptBtn = messageEntry.querySelector(".copy-prompt-btn") as HTMLButtonElement;
+    copyPromptBtn.addEventListener("click", function() {
+        navigator.clipboard.writeText(entry.message.text).then(function() {
+            const originalHtml = copyPromptBtn.innerHTML;
+            copyPromptBtn.innerHTML = "<span>✓</span>";
+            setTimeout(function() {
+                copyPromptBtn.innerHTML = originalHtml;
+            }, 1500);
+        }).catch(function(err) {
+            console.error("Failed to copy prompt:", err);
+        });
+    });
+
+    const regenerateEntryBtn = messageEntry.querySelector(".regenerate-entry-btn") as HTMLButtonElement;
+    regenerateEntryBtn.addEventListener("click", function() {
+        handleRegenerateWithNewSeed(index, 0);
+    });
 
     if (scrollTo) {
         await new Promise(function(resolve) {
@@ -1190,7 +1220,6 @@ export function renderReferenceImagesToolbar(conversation: Conversation): void {
         addBtn.addEventListener("click", function() {
             openReferenceImagesDialog();
         });
-        initTooltipForElement(addBtn);
     }
 
     for (let i = 0; i < refImages.length; i++) {
@@ -1234,7 +1263,6 @@ async function renderReferenceImageThumbnail(refImage: ReferenceImage, index: nu
         removeBtn.addEventListener("click", async function() {
             await removeReferenceImage(index);
         });
-        initTooltipForElement(removeBtn);
     }
 
     containerEl.appendChild(item);
@@ -1310,6 +1338,7 @@ async function createConversationGroup(timestamp: number, images: Array<{timesta
         timestamp: number;
         imageIndex: number;
         title: string;
+        tags: string[];
         item: HTMLElement;
         checkbox: HTMLInputElement;
         img: HTMLImageElement;
@@ -1355,6 +1384,7 @@ async function createConversationGroup(timestamp: number, images: Array<{timesta
             timestamp: number;
             imageIndex: number;
             title: string;
+            tags: string[];
             item: HTMLElement;
             checkbox: HTMLInputElement;
             img: HTMLImageElement;
@@ -1414,6 +1444,7 @@ function handleConversationClick(_e: Event, group: {
         timestamp: number;
         imageIndex: number;
         title: string;
+        tags: string[];
         item: HTMLElement;
         checkbox: HTMLInputElement;
         img: HTMLImageElement;
@@ -1519,6 +1550,7 @@ async function createImageItem(imgData: {
     timestamp: number;
     imageIndex: number;
     title: string;
+    tags: string[];
     item: HTMLElement;
     checkbox: HTMLInputElement;
     img: HTMLImageElement;
@@ -1536,6 +1568,18 @@ async function createImageItem(imgData: {
     const dataUrl = await getImageDataURL(imgData.timestamp, imgData.imageIndex);
     const isBroken = !dataUrl;
     
+    /** @type {string[]} */
+    let tags: string[] = [];
+    try {
+        const conversation = await loadConversation(imgData.timestamp);
+        if (conversation && conversation.entries[imgData.imageIndex]) {
+            const entry = conversation.entries[imgData.imageIndex];
+            tags = entry.response.imageMetadata?.[imgData.imageIndex]?.tags ?? [];
+        }
+    } catch {
+        tags = [];
+    }
+    
     if (dataUrl) {
         img.src = dataUrl;
     } else {
@@ -1548,6 +1592,7 @@ async function createImageItem(imgData: {
         timestamp: number;
         imageIndex: number;
         title: string;
+        tags: string[];
         item: HTMLElement;
         checkbox: HTMLInputElement;
         img: HTMLImageElement;
@@ -1558,6 +1603,7 @@ async function createImageItem(imgData: {
         timestamp: imgData.timestamp,
         imageIndex: imgData.imageIndex,
         title: imgData.title,
+        tags: tags,
         item: itemElement,
         checkbox: checkbox,
         img: img,
@@ -1636,16 +1682,31 @@ function updateSelectedCount(): void {
 }
 
 /**
- * Filters conversations by search term
- * @param {string} searchTerm - Search term
+ * Filters conversations by search term and tag filter
+ * @param {string} searchTerm - Search term for conversation titles
+ * @param {string} tagFilter - Tag filter for images
  */
-function filterConversationsBySearch(searchTerm: string): void {
+function filterConversationsBySearchAndTag(searchTerm: string, tagFilter: string): void {
     dialogState.searchTerm = searchTerm;
+    dialogState.tagFilter = tagFilter;
     
     const term = searchTerm.toLowerCase().trim();
+    const tag = tagFilter.toLowerCase().trim();
     
     for (const group of dialogState.conversations) {
-        const matches = term.length === 0 || group.title.toLowerCase().includes(term);
+        let matchesTitle = term.length === 0 || group.title.toLowerCase().includes(term);
+        
+        let matchesTag = false;
+        if (tag.length > 0 && group.isLoaded) {
+            for (const imageItem of group.imageItems) {
+                if (imageItem.tags && imageItem.tags.some(t => t.includes(tag))) {
+                    matchesTag = true;
+                    break;
+                }
+            }
+        }
+        
+        const matches = matchesTitle && (tag.length === 0 || matchesTag);
         
         group.isVisible = matches;
         group.group.style.display = matches ? "block" : "none";
@@ -1663,6 +1724,7 @@ function filterConversationsBySearch(searchTerm: string): void {
 async function rebuildDialogState(): Promise<void> {
     dialogState.conversations = [];
     dialogState.searchTerm = "";
+    dialogState.tagFilter = "";
     
     if (availableImagesCache.length === 0) {
         availableImagesCache = await getAllAvailableImages();
@@ -1724,7 +1786,12 @@ export async function openReferenceImagesDialog(): Promise<void> {
         searchInput.value = dialogState.searchTerm;
     }
     
-    filterConversationsBySearch(dialogState.searchTerm);
+    const tagFilterInput = dialog.querySelector("#ref-images-tag-filter") as HTMLInputElement;
+    if (tagFilterInput) {
+        tagFilterInput.value = dialogState.tagFilter;
+    }
+    
+    filterConversationsBySearchAndTag(dialogState.searchTerm, dialogState.tagFilter);
     
     for (const group of dialogState.conversations) {
         if (group.isExpanded) {
@@ -1784,7 +1851,25 @@ export function setupReferenceImagesDialogListeners(dialogElement: HTMLElement):
     if (searchInput) {
         searchInput.addEventListener("input", function(e) {
             const term = (e.target as HTMLInputElement).value;
-            filterConversationsBySearch(term);
+            const tagInput = dialogElement.querySelector("#ref-images-tag-filter") as HTMLInputElement;
+            const tagFilter = tagInput?.value ?? "";
+            filterConversationsBySearchAndTag(term, tagFilter);
+        });
+    }
+
+    const tagFilterInput = dialogElement.querySelector("#ref-images-tag-filter") as HTMLInputElement;
+    if (tagFilterInput) {
+        tagFilterInput.addEventListener("input", function(e) {
+            const tagTerm = (e.target as HTMLInputElement).value;
+            const searchInputEl = dialogElement.querySelector("#ref-images-search") as HTMLInputElement;
+            const searchTerm = searchInputEl?.value ?? "";
+            filterConversationsBySearchAndTag(searchTerm, tagTerm);
+        });
+        tagFilterInput.addEventListener("blur", function() {
+            const suggestionsContainer = dialogElement.querySelector("#tag-filter-suggestions") as HTMLElement;
+            if (suggestionsContainer) {
+                suggestionsContainer.style.display = "none";
+            }
         });
     }
 
@@ -1867,4 +1952,184 @@ export function loadReferenceImagesToolbar(conversation: Conversation): void {
     } else {
         clearReferenceImagesToolbar();
     }
+}
+
+/**
+ * Renders tag badges on an image entry
+ * @param {HTMLElement} container - Container to render tags in
+ * @param {string[]} tags - Array of tags to display
+ * @param {number} conversationTimestamp - Conversation timestamp for edit handlers
+ * @param {number} entryIndex - Entry index for edit handlers
+ * @param {number} imageIndex - Image index for edit handlers
+ */
+function renderImageTags(container: HTMLElement, tags: string[], conversationTimestamp: number, entryIndex: number, imageIndex: number): void {
+    container.innerHTML = "";
+    for (const tag of tags) {
+        const badgeTemplate = document.getElementById("tag-badge-template") as HTMLTemplateElement | null;
+        if (!badgeTemplate) continue;
+        const clone = badgeTemplate.content.cloneNode(true) as DocumentFragment;
+        const badge = clone.firstElementChild as HTMLElement;
+        const tagText = badge.querySelector(".tag-text") as HTMLElement;
+        tagText.textContent = tag;
+        const removeBtn = badge.querySelector(".remove-tag-btn") as HTMLButtonElement;
+        removeBtn.addEventListener("click", function(e) {
+            e.stopPropagation();
+            openTagEditor(conversationTimestamp, entryIndex, imageIndex);
+        });
+        container.appendChild(badge);
+    }
+}
+
+/**
+ * Opens the tag editor modal for an image
+ * @param {number} conversationTimestamp - Conversation timestamp
+ * @param {number} entryIndex - Entry index in conversation
+ * @param {number} imageIndex - Image index in entry
+ */
+export async function openTagEditor(conversationTimestamp: number, entryIndex: number, imageIndex: number): Promise<void> {
+    const conversation = await loadConversation(conversationTimestamp);
+    if (!conversation) {
+        displayError("Conversation not found");
+        return;
+    }
+
+    const entry = conversation.entries[entryIndex];
+    if (!entry) {
+        displayError("Entry not found");
+        return;
+    }
+
+    ensureMetadataArray(entry);
+
+    const timestamps = await listConversations();
+    /** @type {Conversation[]} */
+    const allConversations: Conversation[] = [];
+    for (const ts of timestamps) {
+        const conv = await loadConversation(ts);
+        if (conv) {
+            allConversations.push(conv);
+        }
+    }
+
+    const modalTemplate = document.getElementById("tag-editor-modal-template") as HTMLTemplateElement | null;
+    if (!modalTemplate) {
+        displayError("Tag editor template not found");
+        return;
+    }
+
+    const existingModal = document.getElementById("tag-editor-modal");
+    if (existingModal) {
+        existingModal.remove();
+    }
+
+    const modalClone = modalTemplate.content.cloneNode(true) as DocumentFragment;
+    const modalElement = modalClone.firstElementChild as HTMLElement;
+    document.body.appendChild(modalElement);
+
+    const currentTagsContainer = modalElement.querySelector(".current-tags") as HTMLElement;
+    const tagInput = modalElement.querySelector(".tag-input") as HTMLInputElement;
+    const suggestionsContainer = modalElement.querySelector(".tag-suggestions") as HTMLElement;
+    const saveBtn = modalElement.querySelector(".save-tags-btn") as HTMLButtonElement;
+
+    function renderCurrentTags(): void {
+        currentTagsContainer.innerHTML = "";
+        const updatedTags = getTagsForImage(entry, imageIndex);
+        for (const tag of updatedTags) {
+            const badgeTemplate = document.getElementById("tag-badge-template") as HTMLTemplateElement | null;
+            if (!badgeTemplate) continue;
+            const clone = badgeTemplate.content.cloneNode(true) as DocumentFragment;
+            const badge = clone.firstElementChild as HTMLElement;
+            const tagText = badge.querySelector(".tag-text") as HTMLElement;
+            tagText.textContent = tag;
+            const removeBtn = badge.querySelector(".remove-tag-btn") as HTMLButtonElement;
+            removeBtn.addEventListener("click", function(e) {
+                e.stopPropagation();
+                setTags(entry, imageIndex, updatedTags.filter(t => t !== tag));
+                renderCurrentTags();
+            });
+            currentTagsContainer.appendChild(badge);
+        }
+    }
+
+    function showSuggestions(filter: string): void {
+        suggestionsContainer.innerHTML = "";
+        if (allConversations.length === 0) return;
+
+        const normalizedFilter = filter.toLowerCase().trim();
+        const allTagsList = getAllTags(allConversations);
+        const currentTagsNow = getTagsForImage(entry, imageIndex);
+        const suggestions = allTagsList
+            .filter(t => !currentTagsNow.includes(t))
+            .filter(t => !normalizedFilter || t.includes(normalizedFilter))
+            .slice(0, 10);
+
+        if (suggestions.length === 0) {
+            suggestionsContainer.style.display = "none";
+            return;
+        }
+
+        for (const tag of suggestions) {
+            const item = document.createElement("a");
+            item.className = "dropdown-item";
+            item.href = "#";
+            item.textContent = tag;
+            item.addEventListener("click", function(e) {
+                e.preventDefault();
+                const currentTagsNow2 = getTagsForImage(entry, imageIndex);
+                if (!currentTagsNow2.includes(tag)) {
+                    const newTags = [...currentTagsNow2, tag];
+                    setTags(entry, imageIndex, newTags);
+                }
+                tagInput.value = "";
+                suggestionsContainer.style.display = "none";
+                renderCurrentTags();
+            });
+            suggestionsContainer.appendChild(item);
+        }
+
+        suggestionsContainer.style.display = "block";
+    }
+
+    tagInput.addEventListener("input", function() {
+        showSuggestions(tagInput.value);
+    });
+
+    tagInput.addEventListener("keydown", function(e) {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            const newTag = tagInput.value.trim();
+            if (newTag) {
+                const currentTagsNow = getTagsForImage(entry, imageIndex);
+                if (!currentTagsNow.includes(newTag.toLowerCase().trim())) {
+                    const newTags = [...currentTagsNow, newTag.toLowerCase().trim()];
+                    setTags(entry, imageIndex, newTags);
+                }
+                tagInput.value = "";
+                suggestionsContainer.style.display = "none";
+                renderCurrentTags();
+            }
+        }
+    });
+
+    tagInput.addEventListener("blur", function() {
+        setTimeout(function() {
+            suggestionsContainer.style.display = "none";
+        }, 200);
+    });
+
+    renderCurrentTags();
+
+    const modal = new bootstrap.Modal(modalElement);
+    modal.show();
+
+    modalElement.addEventListener("hidden.bs.modal", function() {
+        modalElement.remove();
+    });
+
+    saveBtn.addEventListener("click", async function() {
+        await saveConversation(conversationTimestamp, conversation);
+        invalidateDialogState();
+        await renderConversation(conversation);
+        modal.hide();
+    });
 }
