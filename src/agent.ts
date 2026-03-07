@@ -463,6 +463,9 @@ export async function handleImageGenerationWithSpinner(
     referenceImages?: ReferenceImage[],
     targetImageIndex?: number
 ): Promise<void> {
+    // Look up model name once at the start - needed for both new entry and regeneration paths
+    const modelName = getModelName(model);
+
     const resolution = imageConfig.imageSize;
     const isNewEntry = targetEntry === null;
     let entryIndex: number;
@@ -473,6 +476,8 @@ export async function handleImageGenerationWithSpinner(
                 systemPrompt: systemPrompt || "",
                 text: prompt,
                 seed: seed as number,
+                modelId: model,
+                modelName: modelName,
                 referenceImages: referenceImages
             },
             response: {
@@ -487,6 +492,10 @@ export async function handleImageGenerationWithSpinner(
         conversation.entries.push(placeholderEntry);
         entryIndex = conversation.entries.length - 1;
     } else {
+        // Update model information for regeneration
+        targetEntry.message.modelId = model;
+        targetEntry.message.modelName = modelName;
+
         if (targetImageIndex !== undefined) {
             entryIndex = conversation.entries.indexOf(targetEntry);
         } else {
@@ -553,12 +562,6 @@ export async function handleImageGenerationWithSpinner(
                 }
             }
             targetEntry.response.responseData = response;
-
-            // Update model information to reflect actual model used for this generation
-            const actualModelId = response.model;
-            const actualModelName = getModelName(actualModelId);
-            targetEntry.message.modelId = actualModelId;
-            targetEntry.message.modelName = actualModelName;
         }
 
         await saveConversation(conversation.timestamp, conversation);
