@@ -8,13 +8,13 @@ import { SYSTEM_PROMPT } from './prompt';
 import { savePreference, getPreference, loadConversation, getImage, loadSummary, listConversations, getReferenceImageDataUrl, getAllAvailableImages, uploadReferenceImage, saveConversation, getImageDataURL } from './storage';
 import { generateConversationTitle, getApiKey, updateConversationSummary, cloneTemplate } from './util';
 import { fetchVisionModels } from './openrouter';
-import { handleRegenerateWithNewSeed, handleRegenerateLarger, handleRegenerateX5, getUpscalingModel } from './agent';
+import { handleRegenerateWithNewSeed, handleRegenerateLarger, handleRegenerateX5, handleRegenerateEntryX5, getUpscalingModel } from './agent';
 import { getAllTags, getTagsForImage, setTags, ensureMetadataArray } from './tagManager';
 import type { Conversation, ConversationSummary, ReferenceImage } from './types/state';
 import type { VisionModel, ChatCompletionResponse } from './types/api';
 import type { ErrorInfo } from './types/error';
 
-export { getApiKey, updateConversationSummary, getUpscalingModel, handleRegenerateWithNewSeed, handleRegenerateLarger, handleRegenerateX5 };
+export { getApiKey, updateConversationSummary, getUpscalingModel, handleRegenerateWithNewSeed, handleRegenerateLarger, handleRegenerateX5, handleRegenerateEntryX5 };
 
 /** @type {Array<{timestamp: number; imageIndex: number; title: string}>} */
 let availableImagesCache: Array<{timestamp: number; imageIndex: number; title: string}> = [];
@@ -1155,6 +1155,11 @@ export async function renderMessageEntry(entry: Conversation['entries'][0], inde
     const regenerateEntryBtn = messageEntry.querySelector(".regenerate-entry-btn") as HTMLButtonElement;
     regenerateEntryBtn.addEventListener("click", function() {
         handleRegenerateWithNewSeed(index, 0);
+    });
+
+    const regenerateEntryX5Btn = messageEntry.querySelector(".regenerate-entry-x5-btn") as HTMLButtonElement;
+    regenerateEntryX5Btn.addEventListener("click", function() {
+        handleRegenerateEntryX5(index);
     });
 
     if (scrollTo) {

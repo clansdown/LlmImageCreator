@@ -553,6 +553,12 @@ export async function handleImageGenerationWithSpinner(
                 }
             }
             targetEntry.response.responseData = response;
+
+            // Update model information to reflect actual model used for this generation
+            const actualModelId = response.model;
+            const actualModelName = getModelName(actualModelId);
+            targetEntry.message.modelId = actualModelId;
+            targetEntry.message.modelName = actualModelName;
         }
 
         await saveConversation(conversation.timestamp, conversation);
@@ -841,12 +847,19 @@ export async function handleRegenerateLarger(entryIndex: number, imageIndex: num
 }
 
 /**
- * Handles regenerating an image 5 times with random seeds in parallel
+ * Core parallel regeneration logic - used by both header and image x5 buttons
  * @param {number} entryIndex - Index of the entry in conversation
- * @param {number} imageIndex - Index of the image within the entry
+ * @param {number} imageIndex - Index of the image for resolution lookup
+ * @param {number} count - Number of parallel regenerations (default 5)
+ * @param {ReferenceImage | undefined} additionalReferenceImage - Optional additional reference image to include
  * @returns {Promise<void>}
  */
-export async function handleRegenerateX5(entryIndex: number, imageIndex: number): Promise<void> {
+async function handleRegenerateMultiple(
+    entryIndex: number,
+    imageIndex: number,
+    count: number = 5,
+    additionalReferenceImage?: ReferenceImage
+): Promise<void> {
     if (!STATE.currentConversation || !STATE.currentConversation.entries[entryIndex]) return;
     const entry = STATE.currentConversation.entries[entryIndex];
 
@@ -855,17 +868,9 @@ export async function handleRegenerateX5(entryIndex: number, imageIndex: number)
 
     const resolution = entry.response.imageResolutions?.[imageIndex] ?? ui.getResolution();
 
-    // Create additional reference image from current image
-    const filename = entry.response.imageFilenames[imageIndex];
-    const storageIndex = parseInt(filename, 10);
-    const additionalRefImage: ReferenceImage = {
-        conversationTimestamp: STATE.currentConversation.timestamp,
-        imageIndex: storageIndex
-    };
-
-    // Pre-allocate 5 placeholders
+    // Pre-allocate placeholders
     const placeholderIndices: number[] = [];
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < count; i++) {
         entry.response.imageFilenames.push("generating");
         entry.response.imageResolutions ??= [];
         entry.response.imageResolutions.push(resolution as '1K' | '2K' | '4K');
@@ -881,16 +886,16 @@ export async function handleRegenerateX5(entryIndex: number, imageIndex: number)
     ui.setLoadingState(true);
 
     try {
-        // Call handleRegenerateWithNewSeed 5 times in parallel
+        // Call handleRegenerateWithNewSeed 'count' times in parallel
         const promises: Promise<void>[] = [];
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < count; i++) {
             const capturedPlaceholderIndex = placeholderIndices[i];
 
             promises.push(
                 handleRegenerateWithNewSeed(
                     entryIndex,
                     imageIndex,
-                    additionalRefImage,
+                    additionalReferenceImage,
                     capturedPlaceholderIndex
                 )
             );
@@ -910,4 +915,34 @@ export async function handleRegenerateX5(entryIndex: number, imageIndex: number)
             });
         }
     }
+}
+
+/**
+ * Handles regenerating an image 5 times with current image as reference
+ * @param {number} entryIndex - Index of the entry in conversation
+ * @param {number} imageIndex - Index of the image within the entry
+ * @returns {Promise<void>}
+ */
+export async function handleRegenerateX5(entryIndex: number, imageIndex: number): Promise<void> {
+    if (!STATE.currentConversation || !STATE.currentConversation.entries[entryIndex]) return;
+    const entry = STATE.currentConversation.entries[entryIndex];
+
+    // Create additional reference image from current image
+    const filename = entry.response.imageFilenames[imageIndex];
+    const storageIndex = parseInt(filename, 10);
+    const additionalRefImage: ReferenceImage = {
+        conversationTimestamp: STATE.currentConversation.timestamp,
+        imageIndex: storageIndex
+    };
+
+    await handleRegenerateMultiple(entryIndex, imageIndex, 5, additionalRefImage);
+}
+
+/**
+ * Handles regenerating from the entry header 5 times (no additional reference images)
+ * @param {number} entryIndex - Index of the entry in conversation
+ * @returns {Promise<void>}
+ */
+export async function handleRegenerateEntryX5(entryIndex: number): Promise<void> {
+    await handleRegenerateMultiple(entryIndex, 0, 5, undefined);
 }
