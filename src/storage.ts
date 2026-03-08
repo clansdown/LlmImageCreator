@@ -22,6 +22,7 @@
  */
 
 import type { Conversation, ConversationSummary } from './types/state';
+import { saveImageToExternal, saveConversationToExternal, saveSummaryToExternal, saveReferenceImageToExternal } from './externalSync';
 
 const STORAGE_PREFERENCES_DIR: string = "preferences";
 const STORAGE_CONVERSATIONS_DIR: string = "conversations";
@@ -230,6 +231,8 @@ export async function saveConversation(timestamp: number, conversationData: Conv
         const writable = await fileHandle.createWritable();
         await writable.write(JSON.stringify(conversationData, null, 2));
         await writable.close();
+
+        saveConversationToExternal(timestamp, conversationData);
     } catch (e) {
         console.error("Error saving conversation:", e);
     }
@@ -283,6 +286,8 @@ export async function saveImage(timestamp: number, imageData: string): Promise<n
         const writable = await fileHandle.createWritable();
         await writable.write(bytes);
         await writable.close();
+
+        saveImageToExternal(timestamp, imageData, nextIndex);
 
         return nextIndex;
     } catch (e) {
@@ -387,6 +392,8 @@ export async function saveSummary(timestamp: number, summaryData: ConversationSu
         const writable = await fileHandle.createWritable();
         await writable.write(JSON.stringify(summaryData, null, 2));
         await writable.close();
+
+        saveSummaryToExternal(timestamp, summaryData);
     } catch (e) {
         console.error("Error saving summary:", e);
     }
@@ -441,6 +448,8 @@ export async function uploadReferenceImage(timestamp: number, file: File): Promi
         const writable = await fileHandle.createWritable();
         await writable.write(bytes);
         await writable.close();
+
+        saveReferenceImageToExternal(timestamp, file, nextIndex);
 
         return nextIndex;
     } catch (e) {

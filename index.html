@@ -145,12 +145,20 @@
             </div>
 
             <div class="d-flex align-items-center">
+                <button id="sync-directory-btn" class="btn btn-outline-light btn-sm me-2" title="Save to external directory">💾</button>
                 <button id="install-btn" class="btn btn-outline-light btn-sm me-2" style="display: none;" title="Install this app">Install App</button>
                 <button id="settings-btn" class="btn btn-outline-light btn-sm me-2" title="Settings">⚙️</button>
                 <span id="balance-display" class="text-light">Enter API key to view balance</span>
             </div>
         </div>
     </nav>
+
+    <div id="sync-progress-container" class="container-fluid" style="display: none; padding: 0.25rem 1rem;">
+        <div class="progress" style="height: 6px;">
+            <div id="sync-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%;"></div>
+        </div>
+        <div id="sync-progress-text" class="small text-light" style="text-align: center;"></div>
+    </div>
 
     <div id="main-content" class="container-fluid">
         <div class="row h-100">

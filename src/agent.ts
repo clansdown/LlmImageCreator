@@ -9,6 +9,7 @@ import { fetchModels, fetchBalance, generateImage, getGenerationInfo } from './o
 import { savePreference, getPreference, listConversations, createConversation, loadConversation, saveConversation, deletePreference, getImage, saveImage, saveSummary, loadSummary } from './storage';
 import * as ui from './ui';
 import { generateRandomSeed, generateConversationTitle, updateConversationSummary, getApiKey } from './util';
+import { toggleSync, isFileSystemAccessSupported } from './externalSync';
 import type { Conversation, ConversationSummary, ConversationEntry, Message, ReferenceImage } from './types/state';
 import type { VisionModel, ChatCompletionResponse, ImageConfig, BalanceInfo, GenerationInfo, Message as ApiMessage } from './types/api';
 
@@ -205,6 +206,18 @@ export function setupEventListeners(): void {
                 (settingsModal as HTMLElement & {instance?: {show(): void}}).instance!.show();
             }
         });
+    }
+
+    const syncBtn = document.getElementById("sync-directory-btn");
+    if (syncBtn) {
+        if (!isFileSystemAccessSupported()) {
+            syncBtn.setAttribute("title", "External directory sync not supported in this browser");
+            (syncBtn as HTMLButtonElement).disabled = true;
+        } else {
+            syncBtn.addEventListener("click", function() {
+                toggleSync();
+            });
+        }
     }
 
     setupDropdownEventListeners();

@@ -2138,3 +2138,69 @@ export async function openTagEditor(conversationTimestamp: number, entryIndex: n
         modal.hide();
     });
 }
+
+/**
+ * Updates the sync button appearance based on state
+ * @param {boolean} enabled - Whether sync is enabled
+ * @param {boolean} syncing - Whether sync is in progress
+ */
+export function updateSyncButton(enabled: boolean, syncing: boolean): void {
+    const syncBtn = document.getElementById("sync-directory-btn");
+    if (!syncBtn) return;
+
+    if (enabled) {
+        syncBtn.textContent = "✓💾";
+        if (syncing) {
+            syncBtn.setAttribute("title", "Syncing to external directory (click to stop)");
+        } else {
+            syncBtn.setAttribute("title", "Syncing enabled - click to stop");
+        }
+    } else {
+        syncBtn.textContent = "💾";
+        syncBtn.setAttribute("title", "Save to external directory");
+    }
+}
+
+/**
+ * Shows the sync progress bar
+ * @param {number} current - Current progress value
+ * @param {number} total - Total progress value
+ */
+export function showSyncProgress(current: number, total: number): void {
+    const container = document.getElementById("sync-progress-container");
+    const progressBar = document.getElementById("sync-progress-bar");
+    const progressText = document.getElementById("sync-progress-text");
+
+    if (!container || !progressBar || !progressText) return;
+
+    container.style.display = "block";
+    const percentage = Math.round((current / total) * 100);
+    progressBar.style.width = percentage + "%";
+    progressText.textContent = "Syncing " + current + "/" + total + " conversations...";
+}
+
+/**
+ * Hides the sync progress bar
+ * @param {boolean} showComplete - Whether to show "Complete" message
+ */
+export function hideSyncProgress(showComplete: boolean = false): void {
+    const container = document.getElementById("sync-progress-container");
+    const progressBar = document.getElementById("sync-progress-bar");
+    const progressText = document.getElementById("sync-progress-text");
+
+    if (!container || !progressBar || !progressText) return;
+
+    if (showComplete) {
+        progressBar.style.width = "100%";
+        progressBar.classList.remove("progress-bar-animated");
+        progressText.textContent = "Sync complete!";
+        setTimeout(function() {
+            container.style.display = "none";
+            progressBar.classList.add("progress-bar-animated");
+            progressBar.style.width = "0%";
+        }, 2000);
+    } else {
+        container.style.display = "none";
+        progressBar.style.width = "0%";
+    }
+}

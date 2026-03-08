@@ -56,6 +56,13 @@ export interface ConversationSummary {
     updated: number;
 }
 
+export interface ExternalSyncState {
+    directoryHandle: FileSystemDirectoryHandle | null;
+    isSyncing: boolean;
+    syncEnabled: boolean;
+    syncProgress: { current: number; total: number } | null;
+}
+
 export interface AppState {
     selectedModel: string | null;
     visionModels: Array<{id: string; name: string}>;
@@ -63,4 +70,5 @@ export interface AppState {
     conversationHistory: Message[];
     isGenerating: boolean;
     deferredPrompt: Event | null;
+    externalSync: ExternalSyncState;
 }

@@ -14,5 +14,11 @@ export const STATE: AppState = {
     currentConversation: null,
     conversationHistory: [],
     isGenerating: false,
-    deferredPrompt: null
+    deferredPrompt: null,
+    externalSync: {
+        directoryHandle: null,
+        isSyncing: false,
+        syncEnabled: false,
+        syncProgress: null
+    }
 };
