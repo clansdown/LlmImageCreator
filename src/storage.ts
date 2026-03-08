@@ -630,3 +630,92 @@ async function getNextImageIndexViaDir(timestamp: number): Promise<number> {
         return 1;
     }
 }
+
+const INDEXED_DB_NAME: string = "LlmImageCreator";
+const INDEXED_DB_VERSION: number = 1;
+const STORE_NAME: string = "directoryHandle";
+
+function openIndexedDB(): Promise<IDBDatabase> {
+    return new Promise(function(resolve, reject) {
+        const request = indexedDB.open(INDEXED_DB_NAME, INDEXED_DB_VERSION);
+
+        request.onerror = function() {
+            reject(request.error);
+        };
+
+        request.onsuccess = function() {
+            resolve(request.result);
+        };
+
+        request.onupgradeneeded = function(event) {
+            const db = (event.target as IDBOpenDBRequest).result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+                db.createObjectStore(STORE_NAME);
+            }
+        };
+    });
+}
+
+/**
+ * Saves the external directory handle to IndexedDB for persistence across sessions
+ * @param {FileSystemDirectoryHandle} handle - Directory handle to save
+ * @returns {Promise<void>}
+ */
+export async function saveDirectoryHandle(handle: FileSystemDirectoryHandle): Promise<void> {
+    try {
+        const db = await openIndexedDB();
+        const transaction = db.transaction(STORE_NAME, "readwrite");
+        const store = transaction.objectStore(STORE_NAME);
+        store.put(handle, "externalDirectory");
+        await new Promise(function(resolve, reject) {
+            transaction.oncomplete = resolve;
+            transaction.onerror = function() { reject(transaction.error); };
+        });
+    } catch (e) {
+        console.error("Error saving directory handle:", e);
+    }
+}
+
+/**
+ * Loads the external directory handle from IndexedDB
+ * @returns {Promise<FileSystemDirectoryHandle | null>} Directory handle or null if not found
+ */
+export async function loadDirectoryHandle(): Promise<FileSystemDirectoryHandle | null> {
+    try {
+        const db = await openIndexedDB();
+        const transaction = db.transaction(STORE_NAME, "readonly");
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.get("externalDirectory");
+
+        return new Promise(function(resolve, reject) {
+            request.onsuccess = function() {
+                resolve(request.result ?? null);
+            };
+            request.onerror = function() {
+                reject(request.error);
+            };
+        });
+    } catch (e) {
+        console.error("Error loading directory handle:", e);
+        return null;
+    }
+}
+
+/**
+ * Clears the stored directory handle from IndexedDB
+ * @returns {Promise<void>}
+ */
+export async function clearDirectoryHandle(): Promise<void> {
+    try {
+        const db = await openIndexedDB();
+        const transaction = db.transaction(STORE_NAME, "readwrite");
+        const store = transaction.objectStore(STORE_NAME);
+        store.delete("externalDirectory");
+        await new Promise(function(resolve, reject) {
+            transaction.oncomplete = resolve;
+            transaction.onerror = function() { reject(transaction.error); };
+        });
+    } catch (e) {
+        console.error("Error clearing directory handle:", e);
+    }
+}

@@ -30,6 +30,7 @@ export interface ConversationMessage {
 
 export interface ImageMetadata {
     tags: string[];
+    rating?: number | null;
 }
 
 export interface ResponseData {
@@ -45,6 +46,7 @@ export interface TaggedImage {
     conversationTimestamp: number;
     imageIndex: number;
     tags: string[];
+    rating?: number | null;
     conversationTitle?: string;
 }
 

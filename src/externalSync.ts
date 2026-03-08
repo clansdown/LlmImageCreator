@@ -4,12 +4,17 @@
  */
 
 import { STATE } from './state';
-import { listConversations, getOPFSHandle, loadConversation, loadSummary, listImages, listReferenceImages } from './storage';
+import { listConversations, getOPFSHandle, loadConversation, loadSummary, listImages, listReferenceImages, saveDirectoryHandle, loadDirectoryHandle, clearDirectoryHandle } from './storage';
 import * as ui from './ui';
 
 declare global {
     interface Window {
         showDirectoryPicker: (options?: { mode?: 'read' | 'readwrite' }) => Promise<FileSystemDirectoryHandle>;
+    }
+
+    interface FileSystemDirectoryHandle {
+        queryPermission?(options?: { mode?: 'read' | 'readwrite' }): Promise<PermissionState>;
+        requestPermission?(options?: { mode?: 'read' | 'readwrite' }): Promise<PermissionState>;
     }
 }
 
@@ -39,6 +44,7 @@ export async function selectDirectory(): Promise<boolean> {
         const dirHandle = await window.showDirectoryPicker();
         STATE.externalSync.directoryHandle = dirHandle;
         STATE.externalSync.syncEnabled = true;
+        await saveDirectoryHandle(dirHandle);
         ui.updateSyncButton(true, false);
         return true;
     } catch (e) {
@@ -50,13 +56,81 @@ export async function selectDirectory(): Promise<boolean> {
 }
 
 /**
+ * Restores the directory handle from IndexedDB and checks permissions
+ * @returns {Promise<boolean>} True if sync is now active
+ */
+export async function restoreDirectoryHandle(): Promise<boolean> {
+    if (!isFileSystemAccessSupported()) {
+        return false;
+    }
+
+    const storedHandle = await loadDirectoryHandle();
+    if (!storedHandle) {
+        return false;
+    }
+
+    try {
+        const permission = await storedHandle.queryPermission?.({ mode: 'readwrite' }) ?? 'prompt';
+        
+        if (permission === 'granted') {
+            STATE.externalSync.directoryHandle = storedHandle;
+            STATE.externalSync.syncEnabled = true;
+            ui.updateSyncButton(true, false);
+            await syncFromOpfs();
+            return true;
+        } else if (permission === 'prompt') {
+            STATE.externalSync.directoryHandle = storedHandle;
+            ui.updateSyncButton(false, false, true);
+            return false;
+        } else {
+            await clearDirectoryHandle();
+            return false;
+        }
+    } catch (e) {
+        console.error("Error restoring directory handle:", e);
+        await clearDirectoryHandle();
+        return false;
+    }
+}
+
+/**
+ * Re-authorizes access to the previously stored directory
+ * @returns {Promise<boolean>} True if re-authorization succeeded
+ */
+export async function reauthorizeDirectory(): Promise<boolean> {
+    if (!STATE.externalSync.directoryHandle) {
+        return await toggleSync();
+    }
+
+    try {
+        const permission = await STATE.externalSync.directoryHandle.requestPermission?.({ mode: 'readwrite' }) ?? 'prompt';
+        
+        if (permission === 'granted') {
+            STATE.externalSync.syncEnabled = true;
+            ui.updateSyncButton(true, false);
+            await syncFromOpfs();
+            return true;
+        } else if (permission === 'denied') {
+            await clearDirectoryHandle();
+            disableSync();
+            return false;
+        }
+        return false;
+    } catch (e) {
+        console.error("Error re-authorizing directory:", e);
+        return false;
+    }
+}
+
+/**
  * Disables sync and clears the directory handle
  */
-export function disableSync(): void {
+export async function disableSync(): Promise<void> {
     STATE.externalSync.directoryHandle = null;
     STATE.externalSync.syncEnabled = false;
     STATE.externalSync.isSyncing = false;
     STATE.externalSync.syncProgress = null;
+    await clearDirectoryHandle();
     ui.updateSyncButton(false, false);
     ui.hideSyncProgress();
 }
@@ -67,7 +141,7 @@ export function disableSync(): void {
  */
 export async function toggleSync(): Promise<boolean> {
     if (STATE.externalSync.syncEnabled) {
-        disableSync();
+        await disableSync();
         return false;
     }
 

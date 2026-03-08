@@ -145,7 +145,7 @@
             </div>
 
             <div class="d-flex align-items-center">
-                <button id="sync-directory-btn" class="btn btn-outline-light btn-sm me-2" title="Save to external directory">💾</button>
+                <button id="sync-directory-btn" class="btn btn-outline-light btn-sm me-2" title="Sync images to external folder">🖴</button>
                 <button id="install-btn" class="btn btn-outline-light btn-sm me-2" style="display: none;" title="Install this app">Install App</button>
                 <button id="settings-btn" class="btn btn-outline-light btn-sm me-2" title="Settings">⚙️</button>
                 <span id="balance-display" class="text-light">Enter API key to view balance</span>
@@ -180,6 +180,19 @@
                 </div>
                 <!-- Error display container (non-scrollable) -->
                 <div id="error-container" style="min-height: 0;"></div>
+                <!-- Rating filter for conversation view -->
+                <div id="conversation-rating-filter-container" class="d-flex align-items-center gap-2 mb-2" style="display: none;">
+                    <label class="small text-muted mb-0">Min rating:</label>
+                    <select id="conversation-rating-filter" class="form-select form-select-sm bg-dark text-white border-secondary" style="width: auto;">
+                        <option value="">All</option>
+                        <option value="5">★★★★★</option>
+                        <option value="4">★★★★☆+</option>
+                        <option value="3">★★★☆☆+</option>
+                        <option value="2">★★☆☆☆+</option>
+                        <option value="1">★☆☆☆☆+</option>
+                        <option value="0">Unrated only</option>
+                    </select>
+                </div>
                 <!-- Scrollable conversation area -->
                 <div id="conversation-area"></div>
             </div>
@@ -253,6 +266,9 @@
                     <button type="button" class="btn btn-sm btn-outline-light image-btn tag-btn" title="Edit tags">
                         <span>🏷️</span>
                     </button>
+                    <button type="button" class="btn btn-sm btn-outline-light image-btn rate-btn" title="Rate image">
+                        <span>⭐</span>
+                    </button>
                     <button type="button" class="btn btn-sm btn-outline-light image-btn download-btn" title="Download image">
                         <span>💾</span>
                     </button>
@@ -268,8 +284,21 @@
                         <span>✨</span>
                     </button>
                 </div>
+                <div class="rating-overlay" style="display: none;"></div>
             </div>
             <div class="image-tags-container"></div>
+        </div>
+    </template>
+
+    <!-- rating-picker-template: Popup for rating an image -->
+    <template id="rating-picker-template">
+        <div class="rating-picker">
+            <span class="rating-star" data-value="1">★</span>
+            <span class="rating-star" data-value="2">★</span>
+            <span class="rating-star" data-value="3">★</span>
+            <span class="rating-star" data-value="4">★</span>
+            <span class="rating-star" data-value="5">★</span>
+            <button class="clear-rating-btn" title="Clear rating">✕</button>
         </div>
     </template>
 
@@ -367,12 +396,23 @@
                     </div>
                     <div class="modal-body">
                         <div class="row mb-3">
-                            <div class="col-md-6">
+                            <div class="col-md-4">
                                 <input id="ref-images-search" type="text" class="form-control bg-dark text-white border-secondary" placeholder="Search by title..." autocomplete="off">
                             </div>
-                            <div class="col-md-6 position-relative">
+                            <div class="col-md-4 position-relative">
                                 <input id="ref-images-tag-filter" type="text" class="form-control bg-dark text-white border-secondary" placeholder="Filter by tag..." autocomplete="off">
                                 <div id="tag-filter-suggestions" class="dropdown-menu position-absolute w-100" style="z-index: 1000; max-height: 300px; overflow-y: auto;"></div>
+                            </div>
+                            <div class="col-md-4">
+                                <select id="ref-images-rating-filter" class="form-select bg-dark text-white border-secondary">
+                                    <option value="">All ratings</option>
+                                    <option value="5">★★★★★</option>
+                                    <option value="4">★★★★☆+</option>
+                                    <option value="3">★★★☆☆+</option>
+                                    <option value="2">★★☆☆☆+</option>
+                                    <option value="1">★☆☆☆☆+</option>
+                                    <option value="0">Unrated</option>
+                                </select>
                             </div>
                         </div>
                         <ul class="nav nav-tabs border-secondary mb-3" id="ref-images-tabs" role="tablist">
@@ -650,6 +690,63 @@
         .tag-suggestions .dropdown-item:hover,
         .tag-filter-suggestions .dropdown-item:hover {
             background-color: #495057;
+        }
+        .rating-overlay {
+            position: absolute;
+            bottom: 5px;
+            left: 5px;
+            display: flex;
+            gap: 2px;
+            background: rgba(0,0,0,0.6);
+            padding: 2px 6px;
+            border-radius: 4px;
+            z-index: 10;
+        }
+        .rating-overlay .star {
+            color: #ffc107;
+            font-size: 0.8rem;
+            line-height: 1;
+        }
+        .rating-overlay .star.empty {
+            color: #6c757d;
+        }
+        .rating-picker {
+            position: absolute;
+            background: rgba(40,40,40,0.95);
+            border: 1px solid #495057;
+            border-radius: 4px;
+            padding: 4px 8px;
+            display: flex;
+            gap: 2px;
+            z-index: 100;
+            white-space: nowrap;
+        }
+        .rating-picker .rating-star {
+            cursor: pointer;
+            font-size: 1.1rem;
+            color: #6c757d;
+            line-height: 1;
+            padding: 2px;
+        }
+        .rating-picker .rating-star:hover,
+        .rating-picker .rating-star.active {
+            color: #ffc107;
+            transform: scale(1.1);
+        }
+        .rating-picker .clear-rating-btn {
+            background: none;
+            border: none;
+            color: #6c757d;
+            cursor: pointer;
+            padding: 2px 4px;
+            font-size: 0.8rem;
+            line-height: 1;
+        }
+        .rating-picker .clear-rating-btn:hover {
+            color: #dc3545;
+        }
+        .image-item-container.filtered-out {
+            display: none;
         }
     </style>
 

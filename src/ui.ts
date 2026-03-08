@@ -10,6 +10,7 @@ import { generateConversationTitle, getApiKey, updateConversationSummary, cloneT
 import { fetchVisionModels } from './openrouter';
 import { handleRegenerateWithNewSeed, handleRegenerateLarger, handleRegenerateX5, handleRegenerateEntryX5, getUpscalingModel } from './agent';
 import { getAllTags, getTagsForImage, setTags, ensureMetadataArray } from './tagManager';
+import { getRatingForImage, setRating } from './ratingManager';
 import type { Conversation, ConversationSummary, ReferenceImage } from './types/state';
 import type { VisionModel, ChatCompletionResponse } from './types/api';
 import type { ErrorInfo } from './types/error';
@@ -60,6 +61,7 @@ let availableImagesCache: Array<{timestamp: number; imageIndex: number; title: s
 let dialogState: {
     searchTerm: string;
     tagFilter: string;
+    ratingFilter: number | null;
     conversations: Array<{
         timestamp: number;
         title: string;
@@ -78,6 +80,7 @@ let dialogState: {
             imageIndex: number;
             title: string;
             tags: string[];
+            rating: number | null;
             item: HTMLElement;
             checkbox: HTMLInputElement;
             img: HTMLImageElement;
@@ -90,6 +93,7 @@ let dialogState: {
 } = {
     searchTerm: "",
     tagFilter: "",
+    ratingFilter: null,
     conversations: [],
     lastUpdated: 0
 };
@@ -989,6 +993,22 @@ function renderExistingImages(
                         openTagEditor(ts, eIdx, iIdx);
                     });
 
+                    const rateBtn = imgItemContainer.querySelector(".rate-btn") as HTMLButtonElement;
+                    rateBtn.dataset.conversationTimestamp = String(conversationTimestamp);
+                    rateBtn.dataset.entryIndex = String(entryIndex);
+                    rateBtn.dataset.imageIndex = String(imgIndex);
+                    rateBtn.addEventListener("click", function(e) {
+                        e.stopPropagation();
+                        const ts = parseInt(String(conversationTimestamp), 10);
+                        const eIdx = parseInt(String(entryIndex), 10);
+                        const iIdx = parseInt(String(imgIndex), 10);
+                        showRatingPicker(imgItemContainer, ts, eIdx, iIdx);
+                    });
+
+                    const ratingOverlay = imgItemContainer.querySelector(".rating-overlay") as HTMLElement;
+                    const currentRating = getRatingForImage(entry, imgIndex);
+                    renderRatingOverlay(ratingOverlay, currentRating);
+
                     const regenerateNewBtn = imgItemContainer.querySelector(".regenerate-new-btn") as HTMLButtonElement;
                     regenerateNewBtn.dataset.entryIndex = String(entryIndex);
                     regenerateNewBtn.dataset.imageIndex = String(imgIndex);
@@ -1344,6 +1364,7 @@ async function createConversationGroup(timestamp: number, images: Array<{timesta
         imageIndex: number;
         title: string;
         tags: string[];
+        rating: number | null;
         item: HTMLElement;
         checkbox: HTMLInputElement;
         img: HTMLImageElement;
@@ -1390,6 +1411,7 @@ async function createConversationGroup(timestamp: number, images: Array<{timesta
             imageIndex: number;
             title: string;
             tags: string[];
+            rating: number | null;
             item: HTMLElement;
             checkbox: HTMLInputElement;
             img: HTMLImageElement;
@@ -1556,6 +1578,7 @@ async function createImageItem(imgData: {
     imageIndex: number;
     title: string;
     tags: string[];
+    rating: number | null;
     item: HTMLElement;
     checkbox: HTMLInputElement;
     img: HTMLImageElement;
@@ -1575,14 +1598,18 @@ async function createImageItem(imgData: {
     
     /** @type {string[]} */
     let tags: string[] = [];
+    /** @type {number | null} */
+    let rating: number | null = null;
     try {
         const conversation = await loadConversation(imgData.timestamp);
         if (conversation && conversation.entries[imgData.imageIndex]) {
             const entry = conversation.entries[imgData.imageIndex];
             tags = entry.response.imageMetadata?.[imgData.imageIndex]?.tags ?? [];
+            rating = entry.response.imageMetadata?.[imgData.imageIndex]?.rating ?? null;
         }
     } catch {
         tags = [];
+        rating = null;
     }
     
     if (dataUrl) {
@@ -1598,6 +1625,7 @@ async function createImageItem(imgData: {
         imageIndex: number;
         title: string;
         tags: string[];
+        rating: number | null;
         item: HTMLElement;
         checkbox: HTMLInputElement;
         img: HTMLImageElement;
@@ -1609,6 +1637,7 @@ async function createImageItem(imgData: {
         imageIndex: imgData.imageIndex,
         title: imgData.title,
         tags: tags,
+        rating: rating,
         item: itemElement,
         checkbox: checkbox,
         img: img,
@@ -1687,7 +1716,7 @@ function updateSelectedCount(): void {
 }
 
 /**
- * Filters conversations by search term and tag filter
+ * Filters conversations by search term, tag filter, and rating filter
  * @param {string} searchTerm - Search term for conversation titles
  * @param {string} tagFilter - Tag filter for images
  */
@@ -1697,6 +1726,7 @@ function filterConversationsBySearchAndTag(searchTerm: string, tagFilter: string
     
     const term = searchTerm.toLowerCase().trim();
     const tag = tagFilter.toLowerCase().trim();
+    const ratingFilter = dialogState.ratingFilter;
     
     for (const group of dialogState.conversations) {
         let matchesTitle = term.length === 0 || group.title.toLowerCase().includes(term);
@@ -1710,8 +1740,24 @@ function filterConversationsBySearchAndTag(searchTerm: string, tagFilter: string
                 }
             }
         }
+
+        let matchesRating = true;
+        if (ratingFilter !== null && group.isLoaded) {
+            matchesRating = false;
+            for (const imageItem of group.imageItems) {
+                if (ratingFilter === 0) {
+                    if (imageItem.rating === null) {
+                        matchesRating = true;
+                        break;
+                    }
+                } else if (imageItem.rating !== null && imageItem.rating >= ratingFilter) {
+                    matchesRating = true;
+                    break;
+                }
+            }
+        }
         
-        const matches = matchesTitle && (tag.length === 0 || matchesTag);
+        const matches = matchesTitle && (tag.length === 0 || matchesTag) && (ratingFilter === null || matchesRating);
         
         group.isVisible = matches;
         group.group.style.display = matches ? "block" : "none";
@@ -1795,7 +1841,12 @@ export async function openReferenceImagesDialog(): Promise<void> {
     if (tagFilterInput) {
         tagFilterInput.value = dialogState.tagFilter;
     }
-    
+
+    const ratingFilterSelect = dialog.querySelector("#ref-images-rating-filter") as HTMLSelectElement;
+    if (ratingFilterSelect) {
+        ratingFilterSelect.value = dialogState.ratingFilter !== undefined ? String(dialogState.ratingFilter) : "";
+    }
+
     filterConversationsBySearchAndTag(dialogState.searchTerm, dialogState.tagFilter);
     
     for (const group of dialogState.conversations) {
@@ -1875,6 +1926,18 @@ export function setupReferenceImagesDialogListeners(dialogElement: HTMLElement):
             if (suggestionsContainer) {
                 suggestionsContainer.style.display = "none";
             }
+        });
+    }
+
+    const ratingFilterSelect = dialogElement.querySelector("#ref-images-rating-filter") as HTMLSelectElement;
+    if (ratingFilterSelect) {
+        ratingFilterSelect.addEventListener("change", function(e) {
+            const filterValue = (e.target as HTMLSelectElement).value;
+            const ratingFilter = filterValue === "" ? null : parseInt(filterValue, 10);
+            dialogState.ratingFilter = ratingFilter;
+            const searchInputEl = dialogElement.querySelector("#ref-images-search") as HTMLInputElement;
+            const tagFilterInputEl = dialogElement.querySelector("#ref-images-tag-filter") as HTMLInputElement;
+            filterConversationsBySearchAndTag(searchInputEl?.value ?? "", tagFilterInputEl?.value ?? "");
         });
     }
 
@@ -2143,21 +2206,25 @@ export async function openTagEditor(conversationTimestamp: number, entryIndex: n
  * Updates the sync button appearance based on state
  * @param {boolean} enabled - Whether sync is enabled
  * @param {boolean} syncing - Whether sync is in progress
+ * @param {boolean} needsReauth - Whether the directory needs re-authorization
  */
-export function updateSyncButton(enabled: boolean, syncing: boolean): void {
+export function updateSyncButton(enabled: boolean, syncing: boolean, needsReauth: boolean = false): void {
     const syncBtn = document.getElementById("sync-directory-btn");
     if (!syncBtn) return;
 
-    if (enabled) {
-        syncBtn.textContent = "✓💾";
+    if (needsReauth) {
+        syncBtn.textContent = "🖴";
+        syncBtn.setAttribute("title", "Click to re-authorize folder access");
+    } else if (enabled) {
+        syncBtn.textContent = "✓🖴";
         if (syncing) {
-            syncBtn.setAttribute("title", "Syncing to external directory (click to stop)");
+            syncBtn.setAttribute("title", "Syncing to folder... (click to stop)");
         } else {
-            syncBtn.setAttribute("title", "Syncing enabled - click to stop");
+            syncBtn.setAttribute("title", "Syncing to folder (click to stop)");
         }
     } else {
-        syncBtn.textContent = "💾";
-        syncBtn.setAttribute("title", "Save to external directory");
+        syncBtn.textContent = "🖴";
+        syncBtn.setAttribute("title", "Sync images to external folder");
     }
 }
 
@@ -2203,4 +2270,185 @@ export function hideSyncProgress(showComplete: boolean = false): void {
         container.style.display = "none";
         progressBar.style.width = "0%";
     }
+}
+
+/**
+ * Renders the rating overlay stars on an image
+ * @param {HTMLElement} container - Rating overlay element
+ * @param {number | null} rating - Current rating or null
+ */
+function renderRatingOverlay(container: HTMLElement, rating: number | null): void {
+    container.innerHTML = "";
+    if (rating === null) {
+        container.style.display = "none";
+        return;
+    }
+
+    container.style.display = "flex";
+    for (let i = 1; i <= 5; i++) {
+        const star = document.createElement("span");
+        star.className = "star" + (i <= rating ? "" : " empty");
+        star.textContent = "★";
+        container.appendChild(star);
+    }
+}
+
+/**
+ * Shows the rating picker popup for an image
+ * @param {HTMLElement} imageContainer - The image item container
+ * @param {number} conversationTimestamp - Conversation timestamp
+ * @param {number} entryIndex - Entry index in conversation
+ * @param {number} imageIndex - Image index within the entry
+ */
+function showRatingPicker(imageContainer: HTMLElement, conversationTimestamp: number, entryIndex: number, imageIndex: number): void {
+    const existingPicker = imageContainer.querySelector(".rating-picker");
+    if (existingPicker) {
+        existingPicker.remove();
+    }
+
+    loadConversation(conversationTimestamp).then(function(conversation: Conversation | null) {
+        if (!conversation || !conversation.entries[entryIndex]) return;
+
+        const entry = conversation.entries[entryIndex];
+        const currentRating = getRatingForImage(entry, imageIndex);
+
+        const pickerTemplate = document.getElementById("rating-picker-template") as HTMLTemplateElement | null;
+        if (!pickerTemplate) return;
+
+        const pickerClone = pickerTemplate.content.cloneNode(true) as DocumentFragment;
+        const picker = pickerClone.firstElementChild as HTMLElement;
+
+        const stars = picker.querySelectorAll(".rating-star");
+        stars.forEach(function(starEl) {
+            const value = parseInt((starEl as HTMLElement).dataset.value || "0", 10);
+            if (currentRating !== null && value <= currentRating) {
+                starEl.classList.add("active");
+            }
+
+            starEl.addEventListener("click", async function() {
+                setRating(entry, imageIndex, value);
+
+                await saveConversation(conversationTimestamp, conversation);
+                invalidateDialogState();
+
+                renderRatingOverlay(imageContainer.querySelector(".rating-overlay") as HTMLElement, value);
+                picker.remove();
+
+                const filterSelect = document.getElementById("conversation-rating-filter") as HTMLSelectElement | null;
+                if (filterSelect && filterSelect.value) {
+                    applyConversationRatingFilter(filterSelect.value);
+                }
+            });
+
+            starEl.addEventListener("mouseenter", function() {
+                stars.forEach(function(s) {
+                    const v = parseInt((s as HTMLElement).dataset.value || "0", 10);
+                    if (v <= value) {
+                        s.classList.add("active");
+                    } else {
+                        s.classList.remove("active");
+                    }
+                });
+            });
+        });
+
+        const wrapper = imageContainer.querySelector(".image-wrapper") as HTMLElement;
+        if (wrapper) {
+            const rect = wrapper.getBoundingClientRect();
+            picker.style.top = (rect.height / 2 - 15) + "px";
+            picker.style.left = (rect.width / 2 - 70) + "px";
+            wrapper.appendChild(picker);
+        }
+
+        const clearBtn = picker.querySelector(".clear-rating-btn") as HTMLButtonElement;
+        if (clearBtn) {
+            clearBtn.addEventListener("click", async function(e) {
+                e.stopPropagation();
+                setRating(entry, imageIndex, null);
+
+                await saveConversation(conversationTimestamp, conversation);
+                invalidateDialogState();
+
+                renderRatingOverlay(imageContainer.querySelector(".rating-overlay") as HTMLElement, null);
+                picker.remove();
+
+                const filterSelect = document.getElementById("conversation-rating-filter") as HTMLSelectElement | null;
+                if (filterSelect && filterSelect.value) {
+                    applyConversationRatingFilter(filterSelect.value);
+                }
+            });
+        }
+
+        document.addEventListener("click", function closePicker(e) {
+            const target = e.target as HTMLElement;
+            if (!picker.contains(target) && target !== imageContainer.querySelector(".rate-btn")) {
+                picker.remove();
+                document.removeEventListener("click", closePicker);
+            }
+        });
+    });
+}
+
+/**
+ * Applies the conversation view rating filter
+ * @param {string} filterValue - Filter value from select element
+ */
+function applyConversationRatingFilter(filterValue: string): void {
+    const conversationArea = document.getElementById("conversation-area");
+    if (!conversationArea) return;
+
+    const minRating = filterValue === "" ? null : parseInt(filterValue, 10);
+
+    const imageContainers = conversationArea.querySelectorAll(".image-item-container");
+    imageContainers.forEach(function(container) {
+        const imgEl = container.querySelector(".generated-image") as HTMLElement;
+        if (!imgEl) return;
+
+        const ts = parseInt(imgEl.dataset.conversationTimestamp || "0", 10);
+        const eIdx = parseInt(imgEl.dataset.entryIndex || "0", 10);
+        const iIdx = parseInt(imgEl.dataset.imageIndex || "0", 10);
+
+        if (ts === 0) return;
+
+        loadConversation(ts).then(function(conv: Conversation | null) {
+            if (!conv || !conv.entries[eIdx]) return;
+
+            const entry = conv.entries[eIdx];
+            const rating = getRatingForImage(entry, iIdx);
+
+            let matches = true;
+            if (minRating === null) {
+                matches = true;
+            } else if (minRating === 0) {
+                matches = rating === null;
+            } else {
+                matches = rating !== null && rating >= minRating;
+            }
+
+            if (matches) {
+                container.classList.remove("filtered-out");
+            } else {
+                container.classList.add("filtered-out");
+            }
+        });
+    });
+}
+
+/**
+ * Sets up the conversation view rating filter handler
+ */
+export function initConversationRatingFilter(): void {
+    const filterContainer = document.getElementById("conversation-rating-filter-container");
+    const filterSelect = document.getElementById("conversation-rating-filter") as HTMLSelectElement | null;
+
+    if (!filterContainer || !filterSelect) return;
+
+    filterSelect.addEventListener("change", function() {
+        if (filterSelect.value) {
+            filterContainer.style.display = "flex";
+        } else {
+            filterContainer.style.display = "none";
+        }
+        applyConversationRatingFilter(filterSelect.value);
+    });
 }

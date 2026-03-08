@@ -9,7 +9,7 @@ import { fetchModels, fetchBalance, generateImage, getGenerationInfo } from './o
 import { savePreference, getPreference, listConversations, createConversation, loadConversation, saveConversation, deletePreference, getImage, saveImage, saveSummary, loadSummary } from './storage';
 import * as ui from './ui';
 import { generateRandomSeed, generateConversationTitle, updateConversationSummary, getApiKey } from './util';
-import { toggleSync, isFileSystemAccessSupported } from './externalSync';
+import { toggleSync, isFileSystemAccessSupported, restoreDirectoryHandle, reauthorizeDirectory } from './externalSync';
 import type { Conversation, ConversationSummary, ConversationEntry, Message, ReferenceImage } from './types/state';
 import type { VisionModel, ChatCompletionResponse, ImageConfig, BalanceInfo, GenerationInfo, Message as ApiMessage } from './types/api';
 
@@ -120,6 +120,7 @@ export function init(): void {
 
     setupEventListeners();
     ui.initSettingsDialog();
+    ui.initConversationRatingFilter();
     loadPreferencesAndInitialize();
 
     listConversations().then(function(timestamps: number[]) {
@@ -128,6 +129,8 @@ export function init(): void {
 
     ui.renderReferenceImagesToolbar(STATE.currentConversation);
     ui.expandTextarea();
+
+    restoreDirectoryHandle();
 
     if (!navigator.onLine) {
         ui.displayWarning("Network unavailable. Some features may not work offline.");
@@ -215,7 +218,11 @@ export function setupEventListeners(): void {
             (syncBtn as HTMLButtonElement).disabled = true;
         } else {
             syncBtn.addEventListener("click", function() {
-                toggleSync();
+                if (STATE.externalSync.directoryHandle && !STATE.externalSync.syncEnabled) {
+                    reauthorizeDirectory();
+                } else {
+                    toggleSync();
+                }
             });
         }
     }
