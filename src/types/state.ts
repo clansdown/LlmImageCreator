@@ -65,6 +65,40 @@ export interface ExternalSyncState {
     syncProgress: { current: number; total: number } | null;
 }
 
+export interface ConversationViewState {
+    minRatingFilter: number | null;
+    entryElementCache: Map<string, HTMLElement>;
+    imageElementCache: Map<string, HTMLElement>;
+}
+
+export interface ConversationViewData {
+    conversationTimestamp: number;
+    entries: ConversationEntryViewData[];
+}
+
+export interface ConversationEntryViewData {
+    entryId: string;
+    entryIndex: number;
+    message: ConversationMessage;
+    response: ResponseViewData;
+}
+
+export interface ResponseViewData {
+    text: string | null;
+    images: ImageViewData[];
+    responseData: unknown;
+    generationData: unknown;
+}
+
+export interface ImageViewData {
+    imageId: string;
+    imageIndex: number;
+    filename: string;
+    resolution: '1K' | '2K' | '4K';
+    metadata: ImageMetadata;
+    isGenerating: boolean;
+}
+
 export interface AppState {
     selectedModel: string | null;
     visionModels: Array<{id: string; name: string}>;
@@ -73,4 +107,5 @@ export interface AppState {
     isGenerating: boolean;
     deferredPrompt: Event | null;
     externalSync: ExternalSyncState;
+    conversationView: ConversationViewState;
 }

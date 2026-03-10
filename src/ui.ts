@@ -11,7 +11,7 @@ import { fetchVisionModels } from './openrouter';
 import { handleRegenerateWithNewSeed, handleRegenerateLarger, handleRegenerateX5, handleRegenerateEntryX5, getUpscalingModel } from './agent';
 import { getAllTags, getTagsForImage, setTags, ensureMetadataArray } from './tagManager';
 import { getRatingForImage, setRating } from './ratingManager';
-import type { Conversation, ConversationSummary, ReferenceImage } from './types/state';
+import type { Conversation, ConversationSummary, ReferenceImage, ConversationEntry, ConversationViewData, ConversationEntryViewData, ImageViewData } from './types/state';
 import type { VisionModel, ChatCompletionResponse } from './types/api';
 import type { ErrorInfo } from './types/error';
 
@@ -19,6 +19,446 @@ export { getApiKey, updateConversationSummary, getUpscalingModel, handleRegenera
 
 /** @type {Array<{timestamp: number; imageIndex: number; title: string}>} */
 let availableImagesCache: Array<{timestamp: number; imageIndex: number; title: string}> = [];
+
+/**
+ * Gets indices of images that should be visible based on rating filter
+ * @param {ConversationEntry} entry - Conversation entry
+ * @param {number | null} minRating - Minimum rating filter (null = show all, 0 = unrated only, 1-5 = min rating)
+ * @returns {number[]} Array of visible image indices
+ */
+function getVisibleImageIndices(entry: ConversationEntry, minRating: number | null): number[] {
+    if (!entry.response.imageFilenames) return [];
+    if (minRating === null) return entry.response.imageFilenames.map((_, i) => i);
+
+    const visible: number[] = [];
+    for (let i = 0; i < entry.response.imageFilenames.length; i++) {
+        const rating = entry.response.imageMetadata?.[i]?.rating ?? null;
+
+        if (minRating === 0) {
+            if (rating === null) visible.push(i);
+        } else {
+            if (rating === null || rating >= minRating) visible.push(i);
+        }
+    }
+    return visible;
+}
+
+/**
+ * Checks if a rating change would affect image visibility
+ * @param {number | null} oldRating - Previous rating
+ * @param {number | null} newRating - New rating
+ * @param {number | null} minRating - Current minimum rating filter
+ * @returns {boolean} True if visibility would change
+ */
+function doesRatingChangeVisibility(oldRating: number | null, newRating: number | null, minRating: number | null): boolean {
+    if (minRating === null) return false;
+
+    const oldPasses = oldRating === null || oldRating >= minRating;
+    const newPasses = newRating === null || newRating >= minRating;
+
+    return oldPasses !== newPasses;
+}
+
+/**
+ * Clears the conversation view caches
+ */
+function clearConversationViewCaches(): void {
+    STATE.conversationView.entryElementCache.clear();
+    STATE.conversationView.imageElementCache.clear();
+    const conversationArea = document.getElementById("conversation-area");
+    if (conversationArea) {
+        conversationArea.innerHTML = "";
+    }
+}
+
+/**
+ * Prepares view data from conversation for rendering
+ * @param {Conversation} conversation - Source conversation
+ * @param {number | null} minRating - Current rating filter
+ * @returns {ConversationViewData} View data for rendering
+ */
+function prepareConversationViewData(conversation: Conversation, minRating: number | null): ConversationViewData {
+    const entries: ConversationEntryViewData[] = [];
+    
+    conversation.entries.forEach((entry, entryIndex) => {
+        const entryId = `${conversation.timestamp}-${entryIndex}`;
+        
+        const visibleIndices = minRating !== null
+            ? getVisibleImageIndices(entry, minRating)
+            : (entry.response.imageFilenames ?? []).map((_, i) => i);
+        
+        if (visibleIndices.length === 0) return;
+        
+        const images: ImageViewData[] = visibleIndices.map(imageIndex => {
+            const filename = entry.response.imageFilenames?.[imageIndex] ?? '';
+            const isGenerating = filename === "generating";
+            const imageId = `${entryId}-${imageIndex}`;
+            const metadata = entry.response.imageMetadata?.[imageIndex] ?? { tags: [], rating: null };
+            
+            return {
+                imageId,
+                imageIndex,
+                filename,
+                resolution: entry.response.imageResolutions?.[imageIndex] ?? '1K',
+                metadata,
+                isGenerating
+            };
+        });
+        
+        entries.push({
+            entryId,
+            entryIndex,
+            message: entry.message,
+            response: {
+                text: entry.response.text,
+                images,
+                responseData: entry.response.responseData,
+                generationData: entry.response.generationData
+            }
+        });
+    });
+    
+    return {
+        conversationTimestamp: conversation.timestamp,
+        entries
+    };
+}
+
+/**
+ * Creates a new entry DOM element from view data
+ * @param {ConversationEntryViewData} entryView - Entry view data
+ * @param {number} conversationTimestamp - Conversation timestamp
+ * @returns {Promise<HTMLElement>} The created element
+ */
+async function createEntryElement(entryView: ConversationEntryViewData, conversationTimestamp: number): Promise<HTMLElement> {
+    const conversationArea = document.getElementById("conversation-area");
+    if (!conversationArea) throw new Error("No conversation area");
+
+    const messageEntry = cloneTemplate("message-entry-template", conversationArea);
+    if (!messageEntry) throw new Error("Failed to clone template");
+
+    const instructionsHeader = messageEntry.querySelector(".model-name-display") as HTMLElement;
+    const modelDisplayName = entryView.message.modelName || entryView.message.modelId || "[Unknown Model]";
+    instructionsHeader.textContent = modelDisplayName + ":";
+
+    const userPromptText = messageEntry.querySelector(".user-prompt-text") as HTMLElement;
+    userPromptText.textContent = entryView.message.text;
+    userPromptText.style.maxHeight = "2.8em";
+    userPromptText.style.overflow = "hidden";
+    userPromptText.style.position = "relative";
+    const fadeElement = document.createElement("div");
+    fadeElement.className = "prompt-fade-out";
+    const computedStyle = window.getComputedStyle(userPromptText);
+    const backgroundColor = computedStyle.backgroundColor;
+    fadeElement.style.position = "absolute";
+    fadeElement.style.bottom = "0";
+    fadeElement.style.left = "0";
+    fadeElement.style.right = "0";
+    fadeElement.style.height = "1.5em";
+    fadeElement.style.background = "linear-gradient(to bottom, transparent 0%, " + backgroundColor + " 100%)";
+    fadeElement.style.pointerEvents = "none";
+    userPromptText.appendChild(fadeElement);
+
+    const imagesContainer = messageEntry.querySelector(".images-container") as HTMLElement;
+    
+    for (const imageView of entryView.response.images) {
+        if (imageView.isGenerating) {
+            const spinnerItem = cloneTemplate("image-loading-template", imagesContainer);
+            if (spinnerItem) {
+                STATE.conversationView.imageElementCache.set(imageView.imageId, spinnerItem);
+            }
+        } else {
+            await renderImageElement(imageView, imagesContainer, entryView.entryId, conversationTimestamp, entryView.entryIndex);
+        }
+    }
+
+    const llmTextBtn = messageEntry.querySelector(".toggle-llm-text") as HTMLElement;
+    const llmTextContent = messageEntry.querySelector(".llm-text-content") as HTMLElement;
+    const expandIcon = messageEntry.querySelector(".expand-icon") as HTMLElement;
+    const collapseIcon = messageEntry.querySelector(".collapse-icon") as HTMLElement;
+    const btnText = messageEntry.querySelector(".btn-text") as HTMLElement;
+    const copyLlmBtn = messageEntry.querySelector(".copy-llm-btn") as HTMLButtonElement;
+    
+    if (entryView.response.text) {
+        (messageEntry.querySelector(".llm-text-body") as HTMLElement).textContent = entryView.response.text;
+        
+        llmTextBtn.addEventListener("click", function() {
+            if (llmTextContent.classList.contains("collapsed")) {
+                llmTextContent.classList.remove("collapsed");
+                expandIcon.style.display = "none";
+                collapseIcon.style.display = "inline";
+                btnText.textContent = " Hide Response";
+            } else {
+                llmTextContent.classList.add("collapsed");
+                expandIcon.style.display = "inline";
+                collapseIcon.style.display = "none";
+                btnText.textContent = " Show Response";
+            }
+        });
+
+        copyLlmBtn.addEventListener("click", function() {
+            navigator.clipboard.writeText(entryView.response.text ?? "").then(function() {
+                const originalHtml = copyLlmBtn.innerHTML;
+                copyLlmBtn.innerHTML = "<span>Copied!</span>";
+                setTimeout(function() {
+                    copyLlmBtn.innerHTML = originalHtml;
+                }, 1500);
+            });
+        });
+    } else {
+        llmTextBtn.style.display = "none";
+    }
+
+    const copyToTextareaBtn = messageEntry.querySelector(".copy-to-textarea-btn") as HTMLButtonElement;
+    copyToTextareaBtn.addEventListener("click", function() {
+        const userInput = document.getElementById("user-input");
+        if (userInput) {
+            (userInput as HTMLTextAreaElement).value = entryView.message.text;
+            userInput.dispatchEvent(new Event("input", { bubbles: true }));
+            (userInput as HTMLTextAreaElement).focus();
+        }
+    });
+
+    const copyPromptBtn = messageEntry.querySelector(".copy-prompt-btn") as HTMLButtonElement;
+    copyPromptBtn.addEventListener("click", function() {
+        navigator.clipboard.writeText(entryView.message.text).then(function() {
+            const originalHtml = copyPromptBtn.innerHTML;
+            copyPromptBtn.innerHTML = "<span>✓</span>";
+            setTimeout(function() {
+                copyPromptBtn.innerHTML = originalHtml;
+            }, 1500);
+        }).catch(function(err) {
+            console.error("Failed to copy prompt:", err);
+        });
+    });
+
+    const regenerateEntryBtn = messageEntry.querySelector(".regenerate-entry-btn") as HTMLButtonElement;
+    regenerateEntryBtn.addEventListener("click", function() {
+        handleRegenerateWithNewSeed(entryView.entryIndex, 0);
+    });
+
+    const regenerateEntryX5Btn = messageEntry.querySelector(".regenerate-entry-x5-btn") as HTMLButtonElement;
+    regenerateEntryX5Btn.addEventListener("click", function() {
+        handleRegenerateEntryX5(entryView.entryIndex);
+    });
+
+    return messageEntry;
+}
+
+/**
+ * Updates an existing entry DOM element with new view data
+ * @param {HTMLElement} element - Existing entry element
+ * @param {ConversationEntryViewData} entryView - New entry view data
+ * @returns {Promise<void>}
+ */
+async function updateEntryElement(element: HTMLElement, entryView: ConversationEntryViewData): Promise<void> {
+    const promptEl = element.querySelector(".user-prompt-text") as HTMLElement;
+    if (promptEl && promptEl.textContent !== entryView.message.text) {
+        promptEl.textContent = entryView.message.text;
+    }
+    
+    const llmBodyEl = element.querySelector(".llm-text-body") as HTMLElement;
+    if (llmBodyEl && llmBodyEl.textContent !== entryView.response.text) {
+        llmBodyEl.textContent = entryView.response.text ?? "";
+    }
+    
+    const imagesContainer = element.querySelector(".images-container") as HTMLElement;
+    if (!imagesContainer) return;
+
+    const expectedImageIds = new Set(entryView.response.images.map(img => img.imageId));
+    
+    const entryIdPrefix = `${entryView.entryId}-`;
+    const cachedImagesInEntry = Array.from(STATE.conversationView.imageElementCache.entries())
+        .filter(([imageId]) => imageId.startsWith(entryIdPrefix));
+    
+    for (const [imageId, cachedElement] of cachedImagesInEntry) {
+        if (!expectedImageIds.has(imageId)) {
+            cachedElement.remove();
+        }
+    }
+    
+    for (const imageView of entryView.response.images) {
+        let imageElement = STATE.conversationView.imageElementCache.get(imageView.imageId);
+        
+        if (imageElement) {
+            if (imageView.isGenerating) {
+                // Still generating - ensure visible
+                if (!imagesContainer.contains(imageElement)) {
+                    imagesContainer.appendChild(imageElement);
+                }
+                imageElement.style.display = "block";
+            } else {
+                // Check if cached element is a spinner (has spinner-border descendant)
+                const isSpinner = imageElement.querySelector(".spinner-border") !== null;
+                if (isSpinner) {
+                    // Replace spinner with real image
+                    imageElement.remove();
+                    imageElement = await renderImageElement(imageView, imagesContainer, entryView.entryId, 0, entryView.entryIndex);
+                } else {
+                    // Reuse existing image
+                    if (!imagesContainer.contains(imageElement)) {
+                        imagesContainer.appendChild(imageElement);
+                    }
+                    imageElement.style.display = "block";
+                }
+            }
+        } else {
+            // Not in cache - create new
+            if (imageView.isGenerating) {
+                const spinnerItem = cloneTemplate("image-loading-template", imagesContainer);
+                if (spinnerItem) {
+                    STATE.conversationView.imageElementCache.set(imageView.imageId, spinnerItem);
+                }
+            } else {
+                imageElement = await renderImageElement(imageView, imagesContainer, entryView.entryId, 0, entryView.entryIndex);
+                imageElement.style.display = "block";
+            }
+        }
+    }
+}
+
+/**
+ * Renders a single image element
+ * @param {ImageViewData} imageView - Image view data
+ * @param {HTMLElement} container - Container to append to
+ * @param {string} entryId - Entry ID for caching
+ * @param {number} conversationTimestamp - Conversation timestamp
+ * @param {number} entryIndex - Entry index
+ * @returns {Promise<HTMLElement>} The created image element
+ */
+async function renderImageElement(
+    imageView: ImageViewData,
+    container: HTMLElement,
+    entryId: string,
+    conversationTimestamp: number,
+    entryIndex: number
+): Promise<HTMLElement> {
+    const imgItemContainer = cloneTemplate("image-entry-template", container);
+    if (!imgItemContainer) throw new Error("Failed to clone image template");
+
+    const imgElement = imgItemContainer.querySelector(".generated-image") as HTMLImageElement;
+    
+    if (conversationTimestamp === 0) {
+        const tsMatch = entryId.match(/^(\d+)-(\d+)$/);
+        if (tsMatch) {
+            conversationTimestamp = parseInt(tsMatch[1], 10);
+            entryIndex = parseInt(tsMatch[2], 10);
+        }
+    }
+
+    const filename = imageView.filename;
+    
+    const blob = await getImage(conversationTimestamp, parseInt(filename, 10));
+    if (!blob) {
+        imgItemContainer.remove();
+        throw new Error("Failed to load image");
+    }
+
+    const objectUrl = URL.createObjectURL(blob);
+    imgElement.onload = function() {
+        URL.revokeObjectURL(objectUrl);
+    };
+    imgElement.src = objectUrl;
+    imgElement.style.maxWidth = "100%";
+    imgElement.dataset.conversationTimestamp = String(conversationTimestamp);
+    imgElement.dataset.entryIndex = String(entryIndex);
+    imgElement.dataset.imageIndex = String(imageView.imageIndex);
+
+    const downloadBtn = imgItemContainer.querySelector(".download-btn") as HTMLButtonElement;
+    downloadBtn.dataset.conversationTimestamp = String(conversationTimestamp);
+    downloadBtn.dataset.entryIndex = String(entryIndex);
+    downloadBtn.dataset.imageIndex = String(imageView.imageIndex);
+    downloadBtn.dataset.filename = filename;
+    downloadBtn.addEventListener("click", function() {
+        const ts = conversationTimestamp;
+        const fn = filename;
+        getImage(ts, parseInt(fn, 10)).then(function(imgBlob: Blob | null) {
+            if (!imgBlob) return;
+            const url = URL.createObjectURL(imgBlob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "image_" + ts + "_" + fn + ".png";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(function() {
+                URL.revokeObjectURL(url);
+            }, 100);
+        });
+    });
+
+    const tagBtn = imgItemContainer.querySelector(".tag-btn") as HTMLButtonElement;
+    tagBtn.dataset.conversationTimestamp = String(conversationTimestamp);
+    tagBtn.dataset.entryIndex = String(entryIndex);
+    tagBtn.dataset.imageIndex = String(imageView.imageIndex);
+    tagBtn.addEventListener("click", function() {
+        openTagEditor(conversationTimestamp, entryIndex, imageView.imageIndex);
+    });
+
+    const rateBtn = imgItemContainer.querySelector(".rate-btn") as HTMLButtonElement;
+    rateBtn.dataset.conversationTimestamp = String(conversationTimestamp);
+    rateBtn.dataset.entryIndex = String(entryIndex);
+    rateBtn.dataset.imageIndex = String(imageView.imageIndex);
+    rateBtn.addEventListener("click", function(e) {
+        e.stopPropagation();
+        showRatingPicker(imgItemContainer, conversationTimestamp, entryIndex, imageView.imageIndex);
+    });
+
+    const ratingOverlay = imgItemContainer.querySelector(".rating-overlay") as HTMLElement;
+    renderRatingOverlay(ratingOverlay, imageView.metadata.rating ?? null);
+
+    const addRefBtn = imgItemContainer.querySelector(".add-ref-btn") as HTMLButtonElement;
+    addRefBtn.dataset.conversationTimestamp = String(conversationTimestamp);
+    addRefBtn.dataset.imageIndex = String(imageView.imageIndex);
+    addRefBtn.addEventListener("click", async function() {
+        await addReferenceImage(conversationTimestamp, imageView.imageIndex, false);
+    });
+
+    const regenerateNewBtn = imgItemContainer.querySelector(".regenerate-new-btn") as HTMLButtonElement;
+    regenerateNewBtn.dataset.entryIndex = String(entryIndex);
+    regenerateNewBtn.dataset.imageIndex = String(imageView.imageIndex);
+    regenerateNewBtn.addEventListener("click", function() {
+        const additionalRef: ReferenceImage = {
+            conversationTimestamp: conversationTimestamp,
+            imageIndex: imageView.imageIndex
+        };
+        handleRegenerateWithNewSeed(entryIndex, imageView.imageIndex, additionalRef);
+    });
+
+    const regenerateX5Btn = imgItemContainer.querySelector(".regenerate-x5-btn") as HTMLButtonElement;
+    regenerateX5Btn.dataset.entryIndex = String(entryIndex);
+    regenerateX5Btn.dataset.imageIndex = String(imageView.imageIndex);
+    regenerateX5Btn.addEventListener("click", function() {
+        handleRegenerateX5(entryIndex, imageView.imageIndex);
+    });
+
+    const regenerateLargerBtn = imgItemContainer.querySelector(".regenerate-larger-btn") as HTMLButtonElement;
+    regenerateLargerBtn.dataset.entryIndex = String(entryIndex);
+    regenerateLargerBtn.dataset.imageIndex = String(imageView.imageIndex);
+    regenerateLargerBtn.addEventListener("click", function() {
+        handleRegenerateLarger(entryIndex, imageView.imageIndex);
+    });
+
+    const imageTagsContainer = imgItemContainer.querySelector(".image-tags-container") as HTMLElement;
+    const tags = imageView.metadata.tags ?? [];
+    if (tags.length > 0) {
+        for (let i = 0; i < Math.min(tags.length, 3); i++) {
+            const tagSpan = document.createElement("span");
+            tagSpan.className = "badge bg-secondary me-1";
+            tagSpan.textContent = tags[i];
+            imageTagsContainer.appendChild(tagSpan);
+        }
+        if (tags.length > 3) {
+            const moreSpan = document.createElement("span");
+            moreSpan.className = "badge bg-secondary";
+            moreSpan.textContent = "+" + (tags.length - 3);
+            imageTagsContainer.appendChild(moreSpan);
+        }
+    }
+
+    STATE.conversationView.imageElementCache.set(imageView.imageId, imgItemContainer);
+    return imgItemContainer;
+}
 
 /**
  * @typedef {Object} ImageItem
@@ -392,6 +832,18 @@ export async function initSettingsDialog(): Promise<void> {
             }
         });
     }
+
+    const defaultRatingSelect = document.getElementById("default-rating-filter-select") as HTMLSelectElement | null;
+    if (defaultRatingSelect) {
+        getPreference("defaultRatingFilter", "3").then(function(savedValue: string | null) {
+            defaultRatingSelect.value = savedValue || "3";
+        });
+
+        defaultRatingSelect.addEventListener("change", function(e) {
+            const value = (e.target as HTMLSelectElement).value;
+            savePreference("defaultRatingFilter", value);
+        });
+    }
 }
 
 /**
@@ -460,6 +912,12 @@ export async function handleSettingsOpen(): Promise<void> {
         const savedPrompt = await getPreference("systemPrompt");
         systemPromptTextarea.value = savedPrompt || SYSTEM_PROMPT;
     }
+
+    const defaultRatingSelect = document.getElementById("default-rating-filter-select") as HTMLSelectElement | null;
+    if (defaultRatingSelect) {
+        const savedDefault = await getPreference("defaultRatingFilter", "3");
+        defaultRatingSelect.value = savedDefault || "3";
+    }
 }
 
 /**
@@ -480,6 +938,7 @@ export async function loadConversationIntoView(timestamp: number): Promise<void>
 
     STATE.currentConversation = conversation;
     STATE.conversationHistory = [];
+    clearConversationViewCaches();
 
     if (conversation.entries) {
         conversation.entries.forEach(function(entry) {
@@ -897,14 +1356,12 @@ export function clearUserInput(): void {
 
 /**
  * Smoothly scrolls the conversation area to the bottom
- * @param {HTMLElement} conversationArea - The conversation area element
  */
-function scrollConversationToBottom(conversationArea: HTMLElement): void {
-    if (!conversationArea) return;
-    conversationArea.scrollTo({
-        top: conversationArea.scrollHeight,
-        behavior: 'smooth' as ScrollBehavior
-    });
+function scrollConversationToBottom(): void {
+    const sentinel = document.getElementById("conversation-scroll-sentinel");
+    if (sentinel) {
+        sentinel.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
 }
 
 /**
@@ -915,6 +1372,7 @@ function scrollConversationToBottom(conversationArea: HTMLElement): void {
  * @param {number} endIndex - Ending index (exclusive)
  * @param {HTMLElement} imagesContainer - Container to append images to
  * @param {number} entryIndex - Entry index in conversation
+ * @param {number[]} specificIndices - Optional specific image indices to render
  */
 function renderExistingImages(
     entry: Conversation['entries'][0],
@@ -922,12 +1380,15 @@ function renderExistingImages(
     startIndex: number,
     endIndex: number,
     imagesContainer: HTMLElement,
-    entryIndex: number
+    entryIndex: number,
+    specificIndices?: number[]
 ): void {
-    if (startIndex >= endIndex) return;
+    if (startIndex >= endIndex && (!specificIndices || specificIndices.length === 0)) return;
 
     getUpscalingModel().then(function(upscalingModel: string | null) {
         for (let imgIndex = startIndex; imgIndex < endIndex; imgIndex++) {
+            if (specificIndices && !specificIndices.includes(imgIndex)) continue;
+            
             const filename = entry.response.imageFilenames[imgIndex];
             if (filename === "generating") continue;
 
@@ -945,12 +1406,9 @@ function renderExistingImages(
                     URL.revokeObjectURL(objectUrl);
                     
                     if (entry.response.imageFilenames.includes("generating")) {
-                        const convArea = document.getElementById("conversation-area");
-                        if (convArea) {
-                            setTimeout(function() {
-                                scrollConversationToBottom(convArea);
-                            }, 50);
-                        }
+                        setTimeout(function() {
+                            scrollConversationToBottom();
+                        }, 50);
                     }
                 };
                 imgElement.src = objectUrl;
@@ -1009,6 +1467,13 @@ function renderExistingImages(
                     const currentRating = getRatingForImage(entry, imgIndex);
                     renderRatingOverlay(ratingOverlay, currentRating);
 
+                    const addRefBtn = imgItemContainer.querySelector(".add-ref-btn") as HTMLButtonElement;
+                    addRefBtn.dataset.conversationTimestamp = String(conversationTimestamp);
+                    addRefBtn.dataset.imageIndex = String(imgIndex);
+                    addRefBtn.addEventListener("click", async function() {
+                        await addReferenceImage(conversationTimestamp, imgIndex, false);
+                    });
+
                     const regenerateNewBtn = imgItemContainer.querySelector(".regenerate-new-btn") as HTMLButtonElement;
                     regenerateNewBtn.dataset.entryIndex = String(entryIndex);
                     regenerateNewBtn.dataset.imageIndex = String(imgIndex);
@@ -1057,9 +1522,10 @@ function renderExistingImages(
  * @param {number} index - Entry index in conversation
  * @param {number} conversationTimestamp - Conversation timestamp for image loading
  * @param {boolean} scrollTo - Whether to scroll this entry into view after rendering
+ * @param {number[]} visibleImageIndices - Indices of images to render (filtered by rating)
  * @returns {Promise<void>}
  */
-export async function renderMessageEntry(entry: Conversation['entries'][0], index: number, conversationTimestamp: number, scrollTo: boolean = false): Promise<void> {
+export async function renderMessageEntry(entry: Conversation['entries'][0], index: number, conversationTimestamp: number, scrollTo: boolean = false, visibleImageIndices?: number[]): Promise<void> {
     const conversationArea = document.getElementById("conversation-area");
     if (!conversationArea) return;
 
@@ -1091,6 +1557,8 @@ export async function renderMessageEntry(entry: Conversation['entries'][0], inde
     const imagesContainer = messageEntry.querySelector(".images-container") as HTMLElement;
     if (entry.response.imageFilenames && entry.response.imageFilenames.length > 0) {
         const hasGenerating = entry.response.imageFilenames.includes("generating");
+        
+        const indicesToRender = visibleImageIndices ?? entry.response.imageFilenames.map((_, i) => i);
 
         if (hasGenerating) {
             for (let imgIndex = 0; imgIndex < entry.response.imageFilenames.length; imgIndex++) {
@@ -1101,14 +1569,16 @@ export async function renderMessageEntry(entry: Conversation['entries'][0], inde
                         const spinnerItem = cloneTemplate("image-loading-template", imagesContainer);
                         if (!spinnerItem) return;
                     }
-                } else {
+                } else if (indicesToRender.includes(imgIndex)) {
                     const tempContainer = document.createElement("div");
                     imagesContainer.appendChild(tempContainer);
-                    renderExistingImages(entry, conversationTimestamp, imgIndex, imgIndex + 1, tempContainer, index);
+                    renderExistingImages(entry, conversationTimestamp, imgIndex, imgIndex + 1, tempContainer, index, [imgIndex]);
                 }
             }
-        } else {
-            renderExistingImages(entry, conversationTimestamp, 0, entry.response.imageFilenames.length, imagesContainer, index);
+        } else if (indicesToRender.length > 0) {
+            const startIdx = indicesToRender[0];
+            const endIdx = indicesToRender[indicesToRender.length - 1] + 1;
+            renderExistingImages(entry, conversationTimestamp, startIdx, endIdx, imagesContainer, index, indicesToRender);
         }
     }
 
@@ -1186,32 +1656,70 @@ export async function renderMessageEntry(entry: Conversation['entries'][0], inde
         await new Promise(function(resolve) {
             setTimeout(resolve, 50);
         });
-        scrollConversationToBottom(conversationArea);
+        scrollConversationToBottom();
     }
 }
 
 /**
  * Renders a complete conversation in the conversation area
  * @param {Conversation} conversation - Conversation object with entries
+ * @param {boolean} scrollToBottom - Whether to scroll to bottom after rendering
  * @returns {Promise<void>}
  */
-export async function renderConversation(conversation: Conversation): Promise<void> {
+export async function renderConversation(conversation: Conversation | null, scrollToBottom: boolean = false): Promise<void> {
     const conversationArea = document.getElementById("conversation-area");
     if (!conversationArea) return;
 
-    conversationArea.innerHTML = "";
+    if (!conversation || !conversation.entries || conversation.entries.length === 0) {
+        clearConversationViewCaches();
+        return;
+    }
 
-    if (!conversation || !conversation.entries) return;
+    const viewData = prepareConversationViewData(conversation, STATE.conversationView.minRatingFilter);
 
-    const promises: Promise<void>[] = [];
-    conversation.entries.forEach(function(entry: Conversation['entries'][0], index: number) {
-        const isLast = index === conversation.entries.length - 1;
-        promises.push(renderMessageEntry(entry, index, conversation.timestamp, isLast));
+    const expectedEntryIds = new Set(viewData.entries.map(e => e.entryId));
+    const expectedImageIds = new Set(
+        viewData.entries.flatMap(e => e.response.images.map(img => img.imageId))
+    );
+
+    STATE.conversationView.entryElementCache.forEach((element, entryId) => {
+        if (!expectedEntryIds.has(entryId)) {
+            element.remove();
+        }
     });
 
-    await Promise.all(promises);
+    STATE.conversationView.imageElementCache.forEach((element, imageId) => {
+        if (!expectedImageIds.has(imageId)) {
+            element.remove();
+        }
+    });
 
-    scrollConversationToBottom(conversationArea);
+    let insertBefore: HTMLElement | null = null;
+    
+    for (let i = viewData.entries.length - 1; i >= 0; i--) {
+        const entryView = viewData.entries[i];
+        const existingEntry = STATE.conversationView.entryElementCache.get(entryView.entryId);
+        
+        if (existingEntry) {
+            await updateEntryElement(existingEntry, entryView);
+            insertBefore = existingEntry;
+        } else {
+            const newEntry = await createEntryElement(entryView, viewData.conversationTimestamp);
+            if (insertBefore) {
+                conversationArea.insertBefore(newEntry, insertBefore);
+            } else {
+                conversationArea.appendChild(newEntry);
+            }
+            STATE.conversationView.entryElementCache.set(entryView.entryId, newEntry);
+            insertBefore = newEntry;
+        }
+    }
+
+    if (scrollToBottom) {
+        setTimeout(function() {
+            scrollConversationToBottom();
+        }, 50);
+    }
 }
 
 /**
@@ -1309,7 +1817,8 @@ export function clearReferenceImagesToolbar(): void {
 export function invalidateDialogState(): void {
     dialogState.conversations = [];
     dialogState.searchTerm = "";
-    dialogState.lastUpdated = 0;
+    dialogState.tagFilter = "";
+    dialogState.ratingFilter = null;
 }
 
 /**
@@ -1602,10 +2111,18 @@ async function createImageItem(imgData: {
     let rating: number | null = null;
     try {
         const conversation = await loadConversation(imgData.timestamp);
-        if (conversation && conversation.entries[imgData.imageIndex]) {
-            const entry = conversation.entries[imgData.imageIndex];
-            tags = entry.response.imageMetadata?.[imgData.imageIndex]?.tags ?? [];
-            rating = entry.response.imageMetadata?.[imgData.imageIndex]?.rating ?? null;
+        if (conversation) {
+            let imagesSeen = 0;
+            for (const entry of conversation.entries) {
+                const entryImageCount = entry.response.imageFilenames?.length ?? 0;
+                if (imgData.imageIndex < imagesSeen + entryImageCount) {
+                    const indexWithinEntry = imgData.imageIndex - imagesSeen;
+                    tags = entry.response.imageMetadata?.[indexWithinEntry]?.tags ?? [];
+                    rating = entry.response.imageMetadata?.[indexWithinEntry]?.rating ?? null;
+                    break;
+                }
+                imagesSeen += entryImageCount;
+            }
         }
     } catch {
         tags = [];
@@ -1716,6 +2233,169 @@ function updateSelectedCount(): void {
 }
 
 /**
+ * Filters individual images within a loaded group based on rating and tag filters
+ * @param {Object} group - Conversation group object
+ * @param {number | null} ratingFilter - Rating filter (null = all, 0 = unrated only, 1-5 = min rating)
+ * @param {string} tagFilter - Tag filter string
+ */
+function filterImageItemsInGroup(group: {
+    isLoaded: boolean;
+    imageItems: Array<{
+        tags: string[];
+        rating: number | null;
+        item: HTMLElement;
+        isVisible: boolean;
+    }>;
+}, ratingFilter: number | null, tagFilter: string): void {
+    if (!group.isLoaded) return;
+
+    const tag = tagFilter.toLowerCase().trim();
+
+    for (const imageItem of group.imageItems) {
+        let matchesRating = true;
+        let matchesTag = true;
+
+        if (ratingFilter !== null) {
+            if (ratingFilter === 0) {
+                matchesRating = imageItem.rating === null;
+            } else {
+                matchesRating = imageItem.rating === null || imageItem.rating >= ratingFilter;
+            }
+        }
+
+        if (tag.length > 0) {
+            matchesTag = imageItem.tags.some(function(t) { return t.includes(tag); });
+        }
+
+        imageItem.isVisible = matchesRating && matchesTag;
+        imageItem.item.style.display = imageItem.isVisible ? "block" : "none";
+    }
+}
+
+/**
+ * Counts total visible images across all loaded groups
+ * @returns {number} Number of visible images
+ */
+function countVisibleImages(): number {
+    let count = 0;
+    for (const group of dialogState.conversations) {
+        if (!group.isLoaded) continue;
+        for (const item of group.imageItems) {
+            if (item.isVisible) count++;
+        }
+    }
+    return count;
+}
+
+/**
+ * Updates group visibility based on visible images (hides groups with no visible images)
+ */
+function updateGroupVisibilityBasedOnVisibleImages(): void {
+    const term = dialogState.searchTerm.toLowerCase().trim();
+    
+    for (const group of dialogState.conversations) {
+        let matchesTitle = term.length === 0 || group.title.toLowerCase().includes(term);
+        
+        let hasVisibleImages = false;
+        if (group.isLoaded) {
+            hasVisibleImages = group.imageItems.some(function(item) { return item.isVisible; });
+        } else {
+            // For unloaded groups, assume they might have matches if title matches
+            hasVisibleImages = matchesTitle;
+        }
+        
+        const groupVisible = matchesTitle && hasVisibleImages;
+        group.isVisible = groupVisible;
+        group.group.style.display = groupVisible ? "block" : "none";
+        
+        if (!groupVisible && group.isExpanded) {
+            collapseConversation(group);
+        }
+    }
+}
+
+/**
+ * Applies filter with auto-loading for unloaded groups when matches < 50
+ * @param {string} searchTerm - Search term for conversation titles
+ * @param {string} tagFilter - Tag filter for images
+ */
+async function applyFilterWithAutoLoad(searchTerm: string, tagFilter: string): Promise<void> {
+    const ratingFilter = dialogState.ratingFilter;
+    const term = searchTerm.toLowerCase().trim();
+    const tag = tagFilter.toLowerCase().trim();
+    
+    // Check if any filter is active
+    const hasActiveFilter = ratingFilter !== null || tag.length > 0 || term.length > 0;
+    
+    // First pass: filter loaded groups and count matches
+    for (const group of dialogState.conversations) {
+        let matchesTitle = term.length === 0 || group.title.toLowerCase().includes(term);
+        
+        // Filter individual images within loaded groups
+        if (group.isLoaded) {
+            filterImageItemsInGroup(group, ratingFilter, tag);
+            const hasVisibleImages = group.imageItems.some(function(item) { return item.isVisible; });
+            const groupVisible = matchesTitle && hasVisibleImages;
+            group.isVisible = groupVisible;
+            group.group.style.display = groupVisible ? "block" : "none";
+        } else {
+            // For unloaded groups, apply title filter only
+            group.isVisible = matchesTitle;
+            group.group.style.display = matchesTitle ? "block" : "none";
+        }
+    }
+    
+    // If no active filter, we're done
+    if (!hasActiveFilter) {
+        return;
+    }
+    
+    // Count current matches
+    let matchCount = countVisibleImages();
+    if (matchCount >= 50) return;
+    
+    // Show loading indicator
+    const browseList = document.getElementById("ref-images-browse-list");
+    let loadingEl = document.getElementById("filter-loading-indicator");
+    if (!loadingEl && browseList) {
+        loadingEl = document.createElement("div");
+        loadingEl.id = "filter-loading-indicator";
+        loadingEl.className = "text-muted small p-2";
+        loadingEl.textContent = "Searching...";
+        browseList.insertBefore(loadingEl, browseList.firstChild);
+    }
+    
+    // Auto-load unloaded groups until we have enough matches
+    for (const group of dialogState.conversations) {
+        if (group.isLoaded) continue;
+        
+        // Load group data (silently, without expanding UI)
+        await loadImagesForConversation(group);
+        
+        // Filter individual images within this newly loaded group
+        filterImageItemsInGroup(group, ratingFilter, tag);
+        
+        // Update group visibility based on filtered images
+        const hasVisibleImages = group.imageItems.some(function(item) { return item.isVisible; });
+        const groupVisible = hasVisibleImages;
+        group.isVisible = groupVisible;
+        group.group.style.display = groupVisible ? "block" : "none";
+        
+        // Re-check count
+        matchCount = countVisibleImages();
+        if (matchCount >= 50) break;
+    }
+    
+    // Remove loading indicator
+    if (loadingEl) {
+        loadingEl.remove();
+    }
+    
+    // Final update to ensure groups with no visible images are hidden
+    updateGroupVisibilityBasedOnVisibleImages();
+}
+
+/**
  * Filters conversations by search term, tag filter, and rating filter
  * @param {string} searchTerm - Search term for conversation titles
  * @param {string} tagFilter - Tag filter for images
@@ -1776,6 +2456,7 @@ async function rebuildDialogState(): Promise<void> {
     dialogState.conversations = [];
     dialogState.searchTerm = "";
     dialogState.tagFilter = "";
+    dialogState.ratingFilter = null;
     
     if (availableImagesCache.length === 0) {
         availableImagesCache = await getAllAvailableImages();
@@ -1909,7 +2590,7 @@ export function setupReferenceImagesDialogListeners(dialogElement: HTMLElement):
             const term = (e.target as HTMLInputElement).value;
             const tagInput = dialogElement.querySelector("#ref-images-tag-filter") as HTMLInputElement;
             const tagFilter = tagInput?.value ?? "";
-            filterConversationsBySearchAndTag(term, tagFilter);
+            applyFilterWithAutoLoad(term, tagFilter);
         });
     }
 
@@ -1919,7 +2600,7 @@ export function setupReferenceImagesDialogListeners(dialogElement: HTMLElement):
             const tagTerm = (e.target as HTMLInputElement).value;
             const searchInputEl = dialogElement.querySelector("#ref-images-search") as HTMLInputElement;
             const searchTerm = searchInputEl?.value ?? "";
-            filterConversationsBySearchAndTag(searchTerm, tagTerm);
+            applyFilterWithAutoLoad(searchTerm, tagTerm);
         });
         tagFilterInput.addEventListener("blur", function() {
             const suggestionsContainer = dialogElement.querySelector("#tag-filter-suggestions") as HTMLElement;
@@ -1931,13 +2612,13 @@ export function setupReferenceImagesDialogListeners(dialogElement: HTMLElement):
 
     const ratingFilterSelect = dialogElement.querySelector("#ref-images-rating-filter") as HTMLSelectElement;
     if (ratingFilterSelect) {
-        ratingFilterSelect.addEventListener("change", function(e) {
+        ratingFilterSelect.addEventListener("change", async function(e) {
             const filterValue = (e.target as HTMLSelectElement).value;
             const ratingFilter = filterValue === "" ? null : parseInt(filterValue, 10);
             dialogState.ratingFilter = ratingFilter;
             const searchInputEl = dialogElement.querySelector("#ref-images-search") as HTMLInputElement;
             const tagFilterInputEl = dialogElement.querySelector("#ref-images-tag-filter") as HTMLInputElement;
-            filterConversationsBySearchAndTag(searchInputEl?.value ?? "", tagFilterInputEl?.value ?? "");
+            await applyFilterWithAutoLoad(searchInputEl?.value ?? "", tagFilterInputEl?.value ?? "");
         });
     }
 
@@ -1961,6 +2642,12 @@ export async function addReferenceImage(conversationTimestamp: number, imageInde
         conversationTimestamp: isReference ? -conversationTimestamp : conversationTimestamp,
         imageIndex: imageIndex
     };
+
+    const exists = STATE.currentConversation.referenceImages.some(
+        img => img.conversationTimestamp === refImage.conversationTimestamp && 
+               img.imageIndex === refImage.imageIndex
+    );
+    if (exists) return;
 
     STATE.currentConversation.referenceImages.push(refImage);
 
@@ -2326,17 +3013,26 @@ function showRatingPicker(imageContainer: HTMLElement, conversationTimestamp: nu
             }
 
             starEl.addEventListener("click", async function() {
+                const oldRating = getRatingForImage(entry, imageIndex);
+                
                 setRating(entry, imageIndex, value);
 
                 await saveConversation(conversationTimestamp, conversation);
                 invalidateDialogState();
 
+                if (STATE.currentConversation && STATE.currentConversation.timestamp === conversationTimestamp) {
+                    STATE.currentConversation = conversation;
+                }
+
                 renderRatingOverlay(imageContainer.querySelector(".rating-overlay") as HTMLElement, value);
                 picker.remove();
 
-                const filterSelect = document.getElementById("conversation-rating-filter") as HTMLSelectElement | null;
-                if (filterSelect && filterSelect.value) {
-                    applyConversationRatingFilter(filterSelect.value);
+                if (STATE.currentConversation && STATE.currentConversation.timestamp === conversationTimestamp) {
+                    const visibilityChanges = doesRatingChangeVisibility(oldRating, value, STATE.conversationView.minRatingFilter);
+                    
+                    if (visibilityChanges) {
+                        await renderConversation(STATE.currentConversation, false);
+                    }
                 }
             });
 
@@ -2364,17 +3060,26 @@ function showRatingPicker(imageContainer: HTMLElement, conversationTimestamp: nu
         if (clearBtn) {
             clearBtn.addEventListener("click", async function(e) {
                 e.stopPropagation();
+                const oldRating = getRatingForImage(entry, imageIndex);
+                
                 setRating(entry, imageIndex, null);
 
                 await saveConversation(conversationTimestamp, conversation);
                 invalidateDialogState();
 
+                if (STATE.currentConversation && STATE.currentConversation.timestamp === conversationTimestamp) {
+                    STATE.currentConversation = conversation;
+                }
+
                 renderRatingOverlay(imageContainer.querySelector(".rating-overlay") as HTMLElement, null);
                 picker.remove();
 
-                const filterSelect = document.getElementById("conversation-rating-filter") as HTMLSelectElement | null;
-                if (filterSelect && filterSelect.value) {
-                    applyConversationRatingFilter(filterSelect.value);
+                if (STATE.currentConversation && STATE.currentConversation.timestamp === conversationTimestamp) {
+                    const visibilityChanges = doesRatingChangeVisibility(oldRating, null, STATE.conversationView.minRatingFilter);
+                    
+                    if (visibilityChanges) {
+                        await renderConversation(STATE.currentConversation, false);
+                    }
                 }
             });
         }
@@ -2390,65 +3095,38 @@ function showRatingPicker(imageContainer: HTMLElement, conversationTimestamp: nu
 }
 
 /**
- * Applies the conversation view rating filter
- * @param {string} filterValue - Filter value from select element
- */
-function applyConversationRatingFilter(filterValue: string): void {
-    const conversationArea = document.getElementById("conversation-area");
-    if (!conversationArea) return;
-
-    const minRating = filterValue === "" ? null : parseInt(filterValue, 10);
-
-    const imageContainers = conversationArea.querySelectorAll(".image-item-container");
-    imageContainers.forEach(function(container) {
-        const imgEl = container.querySelector(".generated-image") as HTMLElement;
-        if (!imgEl) return;
-
-        const ts = parseInt(imgEl.dataset.conversationTimestamp || "0", 10);
-        const eIdx = parseInt(imgEl.dataset.entryIndex || "0", 10);
-        const iIdx = parseInt(imgEl.dataset.imageIndex || "0", 10);
-
-        if (ts === 0) return;
-
-        loadConversation(ts).then(function(conv: Conversation | null) {
-            if (!conv || !conv.entries[eIdx]) return;
-
-            const entry = conv.entries[eIdx];
-            const rating = getRatingForImage(entry, iIdx);
-
-            let matches = true;
-            if (minRating === null) {
-                matches = true;
-            } else if (minRating === 0) {
-                matches = rating === null;
-            } else {
-                matches = rating !== null && rating >= minRating;
-            }
-
-            if (matches) {
-                container.classList.remove("filtered-out");
-            } else {
-                container.classList.add("filtered-out");
-            }
-        });
-    });
-}
-
-/**
  * Sets up the conversation view rating filter handler
  */
-export function initConversationRatingFilter(): void {
+export async function initConversationRatingFilter(): Promise<void> {
     const filterContainer = document.getElementById("conversation-rating-filter-container");
     const filterSelect = document.getElementById("conversation-rating-filter") as HTMLSelectElement | null;
 
     if (!filterContainer || !filterSelect) return;
 
-    filterSelect.addEventListener("change", function() {
+    const defaultRating = await getPreference("defaultRatingFilter", "3");
+    const filterValue = defaultRating || "";
+    
+    STATE.conversationView.minRatingFilter = filterValue ? parseInt(filterValue, 10) : null;
+    filterSelect.value = filterValue;
+
+    if (filterSelect.value) {
+        filterContainer.style.display = "flex";
+    }
+
+    filterSelect.addEventListener("change", async function() {
+        const value = filterSelect.value;
+        STATE.conversationView.minRatingFilter = value ? parseInt(value, 10) : null;
+        
         if (filterSelect.value) {
             filterContainer.style.display = "flex";
         } else {
             filterContainer.style.display = "none";
         }
-        applyConversationRatingFilter(filterSelect.value);
+        
+        clearConversationViewCaches();
+        
+        if (STATE.currentConversation) {
+            await renderConversation(STATE.currentConversation, false);
+        }
     });
 }

@@ -20,5 +20,10 @@ export const STATE: AppState = {
         isSyncing: false,
         syncEnabled: false,
         syncProgress: null
+    },
+    conversationView: {
+        minRatingFilter: null,
+        entryElementCache: new Map(),
+        imageElementCache: new Map()
     }
 };

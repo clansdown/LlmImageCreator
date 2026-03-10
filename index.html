@@ -92,6 +92,10 @@
             background-color: #0d6efd !important;
             color: white !important;
         }
+        #conversation-scroll-sentinel {
+            height: 1px;
+            clear: both;
+        }
     </style>
 </head>
 <body>
@@ -195,6 +199,7 @@
                 </div>
                 <!-- Scrollable conversation area -->
                 <div id="conversation-area"></div>
+                <div id="conversation-scroll-sentinel"></div>
             </div>
         </div>
     </div>
@@ -263,26 +268,41 @@
             <div class="image-wrapper">
                 <img class="generated-image">
                 <div class="bottom-buttons">
-                    <button type="button" class="btn btn-sm btn-outline-light image-btn tag-btn" title="Edit tags">
-                        <span>🏷️</span>
-                    </button>
-                    <button type="button" class="btn btn-sm btn-outline-light image-btn rate-btn" title="Rate image">
-                        <span>⭐</span>
-                    </button>
-                    <button type="button" class="btn btn-sm btn-outline-light image-btn download-btn" title="Download image">
-                        <span>💾</span>
-                    </button>
+                    <div class="row w-100 m-0">
+                        <div class="col p-0"></div>
+                        <div class="col-auto p-0 d-flex gap-1">
+                            <button type="button" class="btn btn-sm btn-outline-light image-btn tag-btn" title="Edit tags">
+                                <span>🏷️</span>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-light image-btn rate-btn" title="Rate image">
+                                <span>⭐</span>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-light image-btn download-btn" title="Download image">
+                                <span>💾</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 <div class="top-buttons">
-                    <button type="button" class="btn btn-sm btn-outline-light image-btn regenerate-x5-btn" title="Regenerate 5 times">
-                        <span>⟳5</span>
-                    </button>
-                    <button type="button" class="btn btn-sm btn-outline-light image-btn regenerate-new-btn" title="Regenerate with new seed">
-                        <span>⟳</span>
-                    </button>
-                    <button type="button" class="btn btn-sm btn-outline-light image-btn regenerate-larger-btn" title="Regenerate in 4K resolution">
-                        <span>✨</span>
-                    </button>
+                    <div class="row w-100 m-0">
+                        <div class="col-auto p-0">
+                            <button type="button" class="btn btn-sm btn-outline-light image-btn add-ref-btn" title="Add to reference images">
+                                <span><b>⇑</b></span>
+                            </button>
+                        </div>
+                        <div class="col p-0"></div>
+                        <div class="col-auto p-0 d-flex gap-1">
+                            <button type="button" class="btn btn-sm btn-outline-light image-btn regenerate-x5-btn" title="Regenerate 5 times">
+                                <span>⟳5</span>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-light image-btn regenerate-new-btn" title="Regenerate with new seed">
+                                <span>⟳</span>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-light image-btn regenerate-larger-btn" title="Regenerate in 4K resolution">
+                                <span>✨</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 <div class="rating-overlay" style="display: none;"></div>
             </div>
@@ -354,6 +374,18 @@
                                 <option value="" disabled selected>Select a model for upscaling images to 4K</option>
                             </select>
                             <div class="form-text">Select one to enable the "Regenerate in 4K" button.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="default-rating-filter-select" class="form-label">Default Rating Filter</label>
+                            <select id="default-rating-filter-select" class="form-select bg-dark text-white border-secondary">
+                                <option value="">Show all images</option>
+                                <option value="5">★★★★★</option>
+                                <option value="4">★★★★☆+</option>
+                                <option value="3">★★★☆☆+</option>
+                                <option value="2">★★☆☆☆+</option>
+                                <option value="1">★☆☆☆☆+</option>
+                            </select>
+                            <div class="form-text">Default minimum rating filter for the conversation view. Unrated images are always shown.</div>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -564,18 +596,18 @@
         .image-wrapper .top-buttons {
             position: absolute;
             top: 5px;
+            left: 5px;
             right: 5px;
             display: flex;
             align-items: center;
-            gap: 1rem;
         }
         .image-wrapper .bottom-buttons {
             position: absolute;
             bottom: 5px;
+            left: 5px;
             right: 5px;
             display: flex;
             align-items: center;
-            gap: 1rem;
         }
         .ref-images-toolbar {
             padding: 0.5rem;

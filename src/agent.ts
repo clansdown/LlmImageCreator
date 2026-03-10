@@ -467,6 +467,7 @@ export async function initializeConversationSummary(timestamp: number): Promise<
  * @param {{imageData: string} | undefined} imageInput - Optional image input for upscaling
  * @param {ReferenceImage[] | undefined} referenceImages - Optional reference images
  * @param {number | undefined} targetImageIndex - Optional target index for x5 regeneration
+ * @param {boolean} scrollToBottom - Whether to scroll to bottom after rendering
  * @returns {Promise<void>}
  */
 export async function handleImageGenerationWithSpinner(
@@ -481,7 +482,8 @@ export async function handleImageGenerationWithSpinner(
     seed?: number,
     imageInput?: {imageData: string},
     referenceImages?: ReferenceImage[],
-    targetImageIndex?: number
+    targetImageIndex?: number,
+    scrollToBottom: boolean = false
 ): Promise<void> {
     // Look up model name once at the start - needed for both new entry and regeneration paths
     const modelName = getModelName(model);
@@ -588,7 +590,7 @@ export async function handleImageGenerationWithSpinner(
         if (imageFilenames.length > 0) {
             ui.invalidateDialogState();
         }
-        await ui.renderConversation(conversation);
+        await ui.renderConversation(conversation, scrollToBottom);
     } catch (error) {
         console.error("Error generating image:", error);
 
@@ -699,7 +701,8 @@ export async function handleGenerate(): Promise<void> {
             imageConfig,
             seed,
             undefined,
-            referenceImages
+            referenceImages,
+            true
         );
     }).then(function() {
         ui.clearUserInput();
@@ -744,12 +747,14 @@ export async function handleGenerate(): Promise<void> {
  * @param {number} imageIndex - Index of the image within the entry
  * @param {ReferenceImage | undefined} additionalReferenceImage - Optional additional reference image to include
  * @param {number | undefined} targetImageIndex - Optional pre-allocated placeholder index for parallel execution
+ * @param {boolean} scrollToBottom - Whether to scroll to bottom after rendering
  */
 export async function handleRegenerateWithNewSeed(
     entryIndex: number, 
     imageIndex: number,
     additionalReferenceImage?: ReferenceImage,
-    targetImageIndex?: number
+    targetImageIndex?: number,
+    scrollToBottom: boolean = false
 ): Promise<void> {
     if (!STATE.currentConversation || !STATE.currentConversation.entries[entryIndex]) return;
     const entry = STATE.currentConversation.entries[entryIndex];
@@ -789,7 +794,8 @@ export async function handleRegenerateWithNewSeed(
         newSeed,
         undefined,
         combinedRefImages,
-        targetImageIndex
+        targetImageIndex,
+        scrollToBottom
     );
 }
 
@@ -854,7 +860,9 @@ export async function handleRegenerateLarger(entryIndex: number, imageIndex: num
             imageConfig,
             undefined,
             { imageData: dataUrl },
-            referenceImages
+            referenceImages,
+            undefined,
+            true
         );
     } catch (error) {
         console.error("Error upscaling image:", error);
@@ -913,13 +921,15 @@ async function handleRegenerateMultiple(
         const promises: Promise<void>[] = [];
         for (let i = 0; i < count; i++) {
             const capturedPlaceholderIndex = placeholderIndices[i];
+            const isLast = i === count - 1;
 
             promises.push(
                 handleRegenerateWithNewSeed(
                     entryIndex,
                     imageIndex,
                     additionalReferenceImage,
-                    capturedPlaceholderIndex
+                    capturedPlaceholderIndex,
+                    isLast
                 )
             );
         }
