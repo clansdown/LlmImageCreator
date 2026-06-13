@@ -411,7 +411,7 @@ async function renderImageElement(
     addRefBtn.dataset.conversationTimestamp = String(conversationTimestamp);
     addRefBtn.dataset.imageIndex = String(imageView.imageIndex);
     addRefBtn.addEventListener("click", async function() {
-        await addReferenceImage(conversationTimestamp, imageView.imageIndex, false);
+        await addReferenceImage(conversationTimestamp, parseInt(imageView.filename, 10), false);
     });
 
     const regenerateNewBtn = imgItemContainer.querySelector(".regenerate-new-btn") as HTMLButtonElement;
@@ -1471,7 +1471,7 @@ function renderExistingImages(
                     addRefBtn.dataset.conversationTimestamp = String(conversationTimestamp);
                     addRefBtn.dataset.imageIndex = String(imgIndex);
                     addRefBtn.addEventListener("click", async function() {
-                        await addReferenceImage(conversationTimestamp, imgIndex, false);
+                        await addReferenceImage(conversationTimestamp, parseInt(filename, 10), false);
                     });
 
                     const regenerateNewBtn = imgItemContainer.querySelector(".regenerate-new-btn") as HTMLButtonElement;
