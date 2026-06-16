@@ -3,15 +3,15 @@
  * Handles all DOM updates and user interface interactions
  */
 
-import { STATE } from './state';
+import { STATE, onStateChange, markDomReady } from './state';
 import { SYSTEM_PROMPT } from './prompt';
-import { savePreference, getPreference, loadConversation, getImage, loadSummary, listConversations, getReferenceImageDataUrl, getAllAvailableImages, uploadReferenceImage, saveConversation, getImageDataURL } from './storage';
-import { generateConversationTitle, getApiKey, updateConversationSummary, cloneTemplate } from './util';
+import { savePreference, getPreference, loadConversation, getImage, loadSummary, listConversations, getReferenceImageDataUrl, getAllAvailableImages, uploadReferenceImage, saveConversation, getImageDataURL, saveProject, loadAllProjects, createRootProject, listProjectIds, deleteProject, moveConversationToProject, reparentProject, deletePreference } from './storage';
+import { generateConversationTitle, getApiKey, updateConversationSummary, cloneTemplate, generateProjectId, createDefaultProjectSettings, resolveInheritedSettings } from './util';
 import { fetchVisionModels } from './openrouter';
-import { handleRegenerateWithNewSeed, handleRegenerateLarger, handleRegenerateX5, handleRegenerateEntryX5, getUpscalingModel } from './agent';
+import { handleRegenerateWithNewSeed, handleRegenerateLarger, handleRegenerateX5, handleRegenerateEntryX5, getUpscalingModel, handleApiKeyEntry } from './agent';
 import { getAllTags, getTagsForImage, setTags, ensureMetadataArray } from './tagManager';
 import { getRatingForImage, setRating } from './ratingManager';
-import type { Conversation, ConversationSummary, ReferenceImage, ConversationEntry, ConversationViewData, ConversationEntryViewData, ImageViewData } from './types/state';
+import type { Conversation, ConversationSummary, ReferenceImage, ConversationEntry, ConversationViewData, ConversationEntryViewData, ImageViewData, Project, ProjectSettings } from './types/state';
 import type { VisionModel, ChatCompletionResponse } from './types/api';
 import type { ErrorInfo } from './types/error';
 
@@ -539,6 +539,218 @@ let dialogState: {
 };
 
 /**
+ * Gets the current project object from STATE
+ * @returns {Project | null} Current project or null if not found
+ */
+export function getCurrentProject(): Project | null {
+    return STATE.projects.find(function(p: Project) { return p.id === STATE.currentProjectId; }) || null;
+}
+
+/**
+ * Gets the effective resolved settings for the current project
+ * @param {ProjectSettings} globalDefaults - Fallback defaults when chain yields null
+ * @returns {ProjectSettings} Fully resolved settings (all non-null)
+ */
+export function getEffectiveProjectSettings(globalDefaults: ProjectSettings): ProjectSettings {
+    const currentProject = getCurrentProject();
+    if (!currentProject) return globalDefaults;
+    return resolveInheritedSettings(currentProject, STATE.projects, globalDefaults);
+}
+
+/**
+ * Initializes the project system: loads projects or migrates from old data
+ * @returns {Promise<void>}
+ */
+export async function initProjectSystem(): Promise<void> {
+    const projectIds = await listProjectIds();
+    if (projectIds.length === 0) {
+        // No projects exist yet - migrate by creating root project
+        const root = await createRootProject();
+        STATE.projects = [root];
+        STATE.currentProjectId = 'root';
+    } else {
+        STATE.projects = await loadAllProjects();
+        // Ensure root project exists
+        const hasRoot = STATE.projects.some(function(p: Project) { return p.id === 'root'; });
+        if (!hasRoot) {
+            const root = await createRootProject();
+            STATE.projects.push(root);
+        }
+        if (STATE.projects.some(function(p: Project) { return p.id === STATE.currentProjectId; })) {
+            // currentProjectId is valid
+        } else {
+            STATE.currentProjectId = 'root';
+        }
+    }
+}
+
+/**
+ * Renders the project selector dropdown in the toolbar
+ */
+export function renderProjectSelector(): void {
+    const existingSelector = document.getElementById('project-selector-btn');
+    if (existingSelector) return;
+
+    const newConvBtn = document.getElementById('new-conversation-btn');
+    if (!newConvBtn) return;
+
+    const template = document.getElementById('project-selector-template') as HTMLTemplateElement | null;
+    if (!template) return;
+
+    const parent = newConvBtn.parentElement;
+    if (!parent) return;
+
+    const clone = template.content.cloneNode(true) as DocumentFragment;
+    const selector = clone.firstElementChild as HTMLElement;
+    parent.insertBefore(selector, newConvBtn.nextSibling);
+
+    populateProjectSelectorMenu();
+}
+
+/**
+ * Populates the project selector dropdown with all projects
+ */
+export function populateProjectSelectorMenu(): void {
+    const menu = document.getElementById('project-selector-menu');
+    const btn = document.getElementById('project-selector-btn');
+    if (!menu || !btn) return;
+
+    menu.innerHTML = '';
+
+    /** @type {Array<{project: Project; depth: number}>} */
+    const sorted: Array<{project: Project; depth: number}> = [];
+
+    function collectChildren(parentId: string | null, depth: number): void {
+        const children = STATE.projects.filter(function(p: Project) { return p.parentId === parentId; });
+        children.sort(function(a: Project, b: Project) { return a.name.localeCompare(b.name); });
+        for (const child of children) {
+            sorted.push({ project: child, depth: depth });
+            collectChildren(child.id, depth + 1);
+        }
+    }
+    collectChildren(null, 0);
+
+    for (const item of sorted) {
+        const li = document.createElement('li');
+        const a = document.createElement('a');
+        a.className = 'dropdown-item';
+        a.href = '#';
+        a.dataset.projectId = item.project.id;
+        a.textContent = '  '.repeat(item.depth) + item.project.name;
+
+        if (item.project.id === STATE.currentProjectId) {
+            a.classList.add('active');
+        }
+
+        a.addEventListener('click', function(e: Event) {
+            e.preventDefault();
+            selectProject(item.project.id);
+        });
+
+        li.appendChild(a);
+        menu.appendChild(li);
+    }
+}
+
+/**
+ * Selects a project and updates the UI state
+ * @param {string} projectId - Project ID to select
+ */
+export function selectProject(projectId: string): void {
+    if (projectId === STATE.currentProjectId) return;
+
+    const project = STATE.projects.find(function(p: Project) { return p.id === projectId; });
+    if (!project) return;
+
+    STATE.currentProjectId = projectId;
+
+    // Update selector button text
+    const btn = document.getElementById('project-selector-btn');
+    if (btn) {
+        btn.textContent = '';
+        btn.textContent = project.name + ' ';
+    }
+
+    // Update active class in menu
+    const menu = document.getElementById('project-selector-menu');
+    if (menu) {
+        const items = menu.querySelectorAll('.dropdown-item');
+        items.forEach(function(item: Element) {
+            item.classList.remove('active');
+            if ((item as HTMLElement).dataset.projectId === projectId) {
+                item.classList.add('active');
+            }
+        });
+    }
+
+    // Apply project's model override if set
+    const effective = getEffectiveProjectSettings({
+        model: null,
+        instructions: null,
+        systemPrompt: null,
+        defaultResolution: null,
+        defaultAspectRatio: null,
+        defaultRatingFilter: null
+    });
+
+    if (effective.model && STATE.visionModels.length > 0) {
+        selectModelById(effective.model, STATE.visionModels);
+    }
+
+    // Apply project's resolution default
+    if (effective.defaultResolution) {
+        setResolution(effective.defaultResolution as '1K' | '2K' | '4K');
+    }
+
+    // Apply project's aspect ratio default
+    if (effective.defaultAspectRatio) {
+        setAspectRatio(effective.defaultAspectRatio);
+    }
+
+    // Apply project's rating filter default
+    if (effective.defaultRatingFilter !== null) {
+        const filterSelect = document.getElementById('conversation-rating-filter') as HTMLSelectElement | null;
+        if (filterSelect) {
+            const filterValue = String(effective.defaultRatingFilter);
+            filterSelect.value = filterValue;
+            STATE.conversationView.minRatingFilter = effective.defaultRatingFilter;
+            clearConversationViewCaches();
+            if (STATE.currentConversation) {
+                renderConversation(STATE.currentConversation, false);
+            }
+        }
+    }
+
+    // Refresh conversation list filtered by project
+    listConversations().then(function(timestamps: number[]) {
+        populateConversationList(timestamps, projectId);
+    });
+
+    // Start a new conversation context
+    handleNewConversation();
+}
+
+/**
+ * Gets the effective system prompt for the current project
+ * @returns {Promise<string>} System prompt string
+ */
+export async function getProjectSystemPrompt(): Promise<string> {
+    const savedGlobal = await getPreference('systemPrompt');
+    const globalSystemPrompt = savedGlobal || SYSTEM_PROMPT;
+
+    const effective = getEffectiveProjectSettings({
+        model: null,
+        instructions: null,
+        systemPrompt: globalSystemPrompt,
+        defaultResolution: null,
+        defaultAspectRatio: null,
+        defaultRatingFilter: null
+    });
+
+    return effective.systemPrompt || globalSystemPrompt;
+}
+
+/**
  * Populates the model dropdown with available image generation models
  * @param {VisionModel[]} models - Array of model objects
  */
@@ -619,7 +831,7 @@ export function clearModelDropdown(): void {
  * @param {{totalCredits: number; totalUsage: number} | null} balance - Object with totalCredits and totalUsage, or null
  * @param {string | null} warning - Optional warning message
  */
-export function updateBalanceDisplay(balance: {totalCredits: number; totalUsage: number} | null, warning: string | null): void {
+export function updateBalanceDisplay(balance: {totalCredits: number; totalUsage: number} | null, warning: string | null = null): void {
     const balanceElement = document.getElementById("balance-display");
     if (!balanceElement) return;
 
@@ -701,8 +913,7 @@ export function getAspectRatio(): string {
  * @returns {Promise<string>} System prompt value
  */
 export async function getSystemPrompt(): Promise<string> {
-    const savedPrompt = await getPreference("systemPrompt");
-    return savedPrompt || SYSTEM_PROMPT;
+    return await getProjectSystemPrompt();
 }
 
 /**
@@ -781,16 +992,69 @@ export async function handleNewConversation(): Promise<void> {
 }
 
 /**
- * Initializes the settings dialog modal and populates the upscaling model dropdown
+ * Populates the default model dropdown in the General tab with vision models
+ * @param {VisionModel[]} visionModels - Array of vision model objects
+ */
+function populateDefaultModelDropdown(visionModels?: VisionModel[]): void {
+    const select = document.getElementById('default-model-select') as HTMLSelectElement | null;
+    if (!select) return;
+
+    select.innerHTML = '';
+    const emptyOption = document.createElement('option');
+    emptyOption.value = '';
+    emptyOption.textContent = 'None (no default)';
+    select.appendChild(emptyOption);
+
+    const models = visionModels ?? STATE.visionModels;
+    if (models && models.length > 0) {
+        for (const model of models) {
+            const option = document.createElement('option');
+            option.value = model.id;
+            option.textContent = model.name;
+            select.appendChild(option);
+        }
+    }
+}
+
+/**
+ * Initializes the settings dialog modal with tabs
  */
 export async function initSettingsDialog(): Promise<void> {
-    const modal = cloneTemplate("settings-dialog-template", document.body);
+    const existingModal = document.getElementById('settings-modal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+
+    const modal = cloneTemplate('settings-dialog-template', document.body);
     if (!modal) return;
 
-    const settingsModal = document.getElementById("settings-modal");
+    const settingsModal = document.getElementById('settings-modal');
     if (!settingsModal) return;
 
     (settingsModal as HTMLElement & {instance?: bootstrap.Modal}).instance = new bootstrap.Modal(settingsModal);
+
+    // Set up tab switching
+    const generalTab = document.getElementById('settings-general-tab');
+    const projectsTab = document.getElementById('settings-projects-tab');
+    const generalPane = document.getElementById('settings-general-pane');
+    const projectsPane = document.getElementById('settings-projects-pane');
+
+    if (generalTab && projectsTab && generalPane && projectsPane) {
+        generalTab.addEventListener('click', function() {
+            generalTab.classList.add('active');
+            projectsTab.classList.remove('active');
+            generalPane.classList.add('show', 'active');
+            projectsPane.classList.remove('show', 'active');
+        });
+
+        projectsTab.addEventListener('click', function() {
+            projectsTab.classList.add('active');
+            generalTab.classList.remove('active');
+            projectsPane.classList.add('show', 'active');
+            generalPane.classList.remove('show', 'active');
+            renderProjectsSettingsPanel();
+        });
+    }
 
     const apiKey = getApiKey();
 
@@ -798,50 +1062,119 @@ export async function initSettingsDialog(): Promise<void> {
         try {
             const visionModels = await fetchVisionModels(apiKey);
             populateUpscalingModelDropdown(visionModels);
+            populateDefaultModelDropdown(visionModels);
         } catch (error) {
-            console.error("Error fetching vision models:", error);
+            console.error('Error fetching vision models:', error);
         }
     }
 
-    const upscalingModelSelect = document.getElementById("upscaling-model-select") as HTMLSelectElement | null;
+    const upscalingModelSelect = document.getElementById('upscaling-model-select') as HTMLSelectElement | null;
     if (upscalingModelSelect) {
-        upscalingModelSelect.addEventListener("change", function(e) {
+        upscalingModelSelect.addEventListener('change', function(e) {
             const modelId = (e.target as HTMLSelectElement).value;
             if (modelId) {
-                savePreference("upscalingModel", modelId);
+                savePreference('upscalingModel', modelId);
             }
         });
     }
 
-    const systemPromptTextarea = document.getElementById("system-prompt-textarea") as HTMLTextAreaElement | null;
-    if (systemPromptTextarea) {
-        getPreference("systemPrompt").then(function(savedPrompt: string | null) {
-            if (savedPrompt && savedPrompt.length > 0) {
-                systemPromptTextarea.value = savedPrompt;
-            } else {
-                systemPromptTextarea.value = SYSTEM_PROMPT;
+    // API key input in settings
+    const settingsApiKeyInput = document.getElementById('settings-api-key-input') as HTMLInputElement | null;
+    if (settingsApiKeyInput) {
+        settingsApiKeyInput.addEventListener('input', function() {
+            const value = settingsApiKeyInput.value;
+            STATE.apiKey = value;
+        });
+
+        settingsApiKeyInput.addEventListener('keydown', function(e: KeyboardEvent) {
+            if (e.key === 'Enter') {
+                handleApiKeyEntry();
             }
         });
 
-        systemPromptTextarea.addEventListener("input", function(e) {
-            const prompt = (e.target as HTMLTextAreaElement).value;
-            if (prompt && prompt.trim().length > 0) {
-                savePreference("systemPrompt", prompt.trim());
-            } else {
-                savePreference("systemPrompt", SYSTEM_PROMPT);
-            }
+        settingsApiKeyInput.addEventListener('blur', function() {
+            handleApiKeyEntry();
         });
     }
 
-    const defaultRatingSelect = document.getElementById("default-rating-filter-select") as HTMLSelectElement | null;
-    if (defaultRatingSelect) {
-        getPreference("defaultRatingFilter", "3").then(function(savedValue: string | null) {
-            defaultRatingSelect.value = savedValue || "3";
-        });
+    // Reactively sync STATE.apiKey to the settings input
+    onStateChange(function(key: string, value: unknown) {
+        if (key === 'apiKey') {
+            const input = document.getElementById('settings-api-key-input') as HTMLInputElement | null;
+            if (input) {
+                input.value = value as string;
+            }
+        }
+    });
 
-        defaultRatingSelect.addEventListener("change", function(e) {
-            const value = (e.target as HTMLSelectElement).value;
-            savePreference("defaultRatingFilter", value);
+    // Signal that the apiKey DOM is ready — fires any deferred update
+    markDomReady('apiKey');
+
+    // Initialize default model dropdown with available models
+    populateDefaultModelDropdown();
+
+    // Save button — collects all fields and persists
+    const saveBtn = document.getElementById('settings-save-btn');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', async function() {
+            // Save API key
+            const apiKeyInput = document.getElementById('settings-api-key-input') as HTMLInputElement | null;
+            if (apiKeyInput) {
+                const value = apiKeyInput.value.trim();
+                if (value !== STATE.apiKey) {
+                    STATE.apiKey = value;
+                    if (value) {
+                        handleApiKeyEntry();
+                    } else {
+                        deletePreference('apiKey');
+                        clearModelDropdown();
+                        updateBalanceDisplay(null, null);
+                    }
+                }
+            }
+
+            // Save upscaling model
+            const upscalingSelect = document.getElementById('upscaling-model-select') as HTMLSelectElement | null;
+            if (upscalingSelect && upscalingSelect.value) {
+                savePreference('upscalingModel', upscalingSelect.value);
+            }
+
+            // Save system prompt
+            const systemPromptInput = document.getElementById('default-system-prompt-textarea') as HTMLTextAreaElement | null;
+            if (systemPromptInput) {
+                const prompt = systemPromptInput.value.trim();
+                savePreference('systemPrompt', prompt || SYSTEM_PROMPT);
+            }
+
+            // Save root project default settings
+            const rootProject = STATE.projects.find(function(p: Project) { return p.id === 'root'; });
+            if (rootProject) {
+                const resolutionSelect = document.getElementById('default-resolution-select') as HTMLSelectElement | null;
+                const aspectRatioSelect = document.getElementById('default-aspect-ratio-select') as HTMLSelectElement | null;
+                const ratingFilterSelect = document.getElementById('default-rating-filter-select') as HTMLSelectElement | null;
+                const modelSelect = document.getElementById('default-model-select') as HTMLSelectElement | null;
+
+                if (resolutionSelect) {
+                    rootProject.settings.defaultResolution = resolutionSelect.value as '1K' | '2K' | '4K' || null;
+                }
+                if (aspectRatioSelect) {
+                    rootProject.settings.defaultAspectRatio = aspectRatioSelect.value || null;
+                }
+                if (ratingFilterSelect) {
+                    const val = ratingFilterSelect.value;
+                    rootProject.settings.defaultRatingFilter = val ? parseInt(val, 10) : null;
+                }
+                if (modelSelect) {
+                    rootProject.settings.model = modelSelect.value || null;
+                }
+                await saveProject(rootProject);
+            }
+
+            // Close modal
+            const modalEl = document.getElementById('settings-modal') as HTMLElement & {instance?: bootstrap.Modal};
+            if (modalEl && modalEl.instance) {
+                modalEl.instance.hide();
+            }
         });
     }
 }
@@ -887,7 +1220,7 @@ export function populateUpscalingModelDropdown(visionModels: VisionModel[]): voi
 }
 
 /**
- * Handles settings dialog open - loads saved preference
+ * Handles settings dialog open - loads saved preferences and project data
  */
 export async function handleSettingsOpen(): Promise<void> {
     const apiKey = getApiKey();
@@ -907,17 +1240,466 @@ export async function handleSettingsOpen(): Promise<void> {
         select.value = modelId;
     }
 
-    const systemPromptTextarea = document.getElementById("system-prompt-textarea") as HTMLTextAreaElement | null;
-    if (systemPromptTextarea) {
-        const savedPrompt = await getPreference("systemPrompt");
-        systemPromptTextarea.value = savedPrompt || SYSTEM_PROMPT;
+    // Populate API key input in settings
+    const settingsApiKeyInput = document.getElementById('settings-api-key-input') as HTMLInputElement | null;
+    if (settingsApiKeyInput) {
+        settingsApiKeyInput.value = STATE.apiKey;
     }
 
-    const defaultRatingSelect = document.getElementById("default-rating-filter-select") as HTMLSelectElement | null;
-    if (defaultRatingSelect) {
-        const savedDefault = await getPreference("defaultRatingFilter", "3");
-        defaultRatingSelect.value = savedDefault || "3";
+    // Populate General tab fields from root project settings
+    const rootProject = STATE.projects.find(function(p: Project) { return p.id === 'root'; });
+    if (rootProject) {
+        const systemPromptInput = document.getElementById('default-system-prompt-textarea') as HTMLTextAreaElement | null;
+        const resolutionSelect = document.getElementById('default-resolution-select') as HTMLSelectElement | null;
+        const aspectRatioSelect = document.getElementById('default-aspect-ratio-select') as HTMLSelectElement | null;
+        const ratingFilterSelect = document.getElementById('default-rating-filter-select') as HTMLSelectElement | null;
+        const modelSelect = document.getElementById('default-model-select') as HTMLSelectElement | null;
+
+        if (systemPromptInput) {
+            const savedPrompt = await getPreference('systemPrompt');
+            systemPromptInput.value = savedPrompt || SYSTEM_PROMPT;
+        }
+        if (resolutionSelect) {
+            resolutionSelect.value = rootProject.settings.defaultResolution || '1K';
+        }
+        if (aspectRatioSelect) {
+            aspectRatioSelect.value = rootProject.settings.defaultAspectRatio || '1:1';
+        }
+        if (ratingFilterSelect) {
+            ratingFilterSelect.value = rootProject.settings.defaultRatingFilter !== null ? String(rootProject.settings.defaultRatingFilter) : '';
+        }
+        if (modelSelect) {
+            // Refresh the model dropdown options
+            modelSelect.innerHTML = '';
+            const emptyOption = document.createElement('option');
+            emptyOption.value = '';
+            emptyOption.textContent = 'None (no default)';
+            modelSelect.appendChild(emptyOption);
+            if (STATE.visionModels.length > 0) {
+                for (const model of STATE.visionModels) {
+                    const option = document.createElement('option');
+                    option.value = model.id;
+                    option.textContent = model.name;
+                    modelSelect.appendChild(option);
+                }
+            }
+            if (rootProject.settings.model) {
+                modelSelect.value = rootProject.settings.model;
+            }
+        }
     }
+}
+
+/**
+ * Renders the Projects tab panel with all sub-project editors
+ */
+export function renderProjectsSettingsPanel(): void {
+    const projectsList = document.getElementById('projects-list');
+    if (!projectsList) return;
+
+    projectsList.innerHTML = '';
+
+    // Always attach the add button handler, even when list is empty
+    setupAddProjectButton();
+
+    /** @type {Array<{project: Project; depth: number}>} */
+    const sorted: Array<{project: Project; depth: number}> = [];
+
+    function collectChildren(parentId: string | null, depth: number): void {
+        const children = STATE.projects.filter(function(p: Project) { return p.parentId === parentId && p.id !== 'root'; });
+        children.sort(function(a: Project, b: Project) { return a.name.localeCompare(b.name); });
+        for (const child of children) {
+            sorted.push({ project: child, depth: depth });
+            collectChildren(child.id, depth + 1);
+        }
+    }
+    collectChildren(null, 0);
+
+    if (sorted.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'text-muted small';
+        emptyMsg.textContent = 'No sub-projects yet. Click "+ New Project" to create one.';
+        projectsList.appendChild(emptyMsg);
+        return;
+    }
+
+    for (const item of sorted) {
+        const editor = createProjectEditor(item.project);
+        if (editor) {
+            editor.style.marginLeft = (item.depth * 20) + 'px';
+            projectsList.appendChild(editor);
+        }
+    }
+}
+
+/**
+ * Creates a project editor DOM element for a given project
+ * @param {Project} project - Project to create editor for
+ * @returns {HTMLElement | null} The editor element or null
+ */
+function createProjectEditor(project: Project): HTMLElement | null {
+    const template = document.getElementById('project-editor-template') as HTMLTemplateElement | null;
+    if (!template) return null;
+
+    const clone = template.content.cloneNode(true) as DocumentFragment;
+    const editor = clone.firstElementChild as HTMLElement;
+    if (!editor) return null;
+
+    editor.dataset.projectId = project.id;
+
+    const header = editor.querySelector('.project-editor-header') as HTMLElement;
+    const nameSpan = editor.querySelector('.project-editor-name') as HTMLElement;
+    const body = editor.querySelector('.project-editor-body') as HTMLElement;
+
+    nameSpan.textContent = project.name;
+
+    // Populate fields
+    const nameInput = editor.querySelector('.project-name-input') as HTMLInputElement;
+    const descInput = editor.querySelector('.project-description-input') as HTMLTextAreaElement;
+    const parentSelect = editor.querySelector('.project-parent-select') as HTMLSelectElement;
+    const instructionsInput = editor.querySelector('.project-instructions-input') as HTMLTextAreaElement;
+    const systemPromptInput = editor.querySelector('.project-system-prompt-input') as HTMLTextAreaElement;
+    const systemPromptBtn = editor.querySelector('.project-set-system-prompt-btn') as HTMLButtonElement;
+    const modelInput = editor.querySelector('.project-model-input') as HTMLSelectElement;
+    const resolutionInput = editor.querySelector('.project-resolution-input') as HTMLSelectElement;
+    const aspectRatioInput = editor.querySelector('.project-aspect-ratio-input') as HTMLSelectElement;
+    const ratingFilterInput = editor.querySelector('.project-rating-filter-input') as HTMLSelectElement;
+    const conversationsList = editor.querySelector('.project-conversations-list') as HTMLElement;
+    const deleteBtn = editor.querySelector('.project-delete-btn') as HTMLButtonElement;
+    const reparentBtn = editor.querySelector('.project-reparent-btn') as HTMLButtonElement;
+
+    if (nameInput) nameInput.value = project.name;
+    if (descInput) descInput.value = project.description;
+
+    // Populate parent select
+    if (parentSelect) {
+        parentSelect.innerHTML = '';
+        const rootOpt = document.createElement('option');
+        rootOpt.value = 'root';
+        rootOpt.textContent = 'Root Project';
+        parentSelect.appendChild(rootOpt);
+
+        const otherProjects = STATE.projects.filter(function(p: Project) {
+            return p.id !== project.id && p.id !== 'root';
+        });
+        for (const p of otherProjects) {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.name;
+            parentSelect.appendChild(opt);
+        }
+        parentSelect.value = project.parentId || 'root';
+    }
+
+    // Instructions — empty means null (inherit)
+    if (instructionsInput) {
+        instructionsInput.value = project.settings.instructions || '';
+    }
+
+    // System Prompt — button when empty, textarea when set
+    if (systemPromptInput && systemPromptBtn) {
+        if (project.settings.systemPrompt) {
+            systemPromptInput.value = project.settings.systemPrompt;
+            systemPromptInput.style.display = '';
+            systemPromptBtn.style.display = 'none';
+        } else {
+            systemPromptInput.style.display = 'none';
+            systemPromptBtn.style.display = '';
+        }
+    }
+
+    // Model — empty means null (inherit)
+    if (modelInput) {
+        if (project.settings.model) {
+            modelInput.value = project.settings.model;
+        }
+        if (STATE.visionModels.length > 0 && modelInput.options.length <= 1) {
+            for (const m of STATE.visionModels) {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = m.name;
+                modelInput.appendChild(opt);
+            }
+        }
+    }
+
+    // Resolution — empty means null (inherit)
+    if (resolutionInput && project.settings.defaultResolution) {
+        resolutionInput.value = project.settings.defaultResolution;
+    }
+
+    // Aspect Ratio — empty means null (inherit)
+    if (aspectRatioInput && project.settings.defaultAspectRatio) {
+        aspectRatioInput.value = project.settings.defaultAspectRatio;
+    }
+
+    // Rating Filter — empty means null (inherit)
+    if (ratingFilterInput && project.settings.defaultRatingFilter !== null) {
+        ratingFilterInput.value = String(project.settings.defaultRatingFilter);
+    }
+
+    // Conversations list
+    if (conversationsList) {
+        renderProjectConversations(conversationsList, project);
+    }
+
+    // Setup event listeners
+    if (header && body) {
+        header.addEventListener('click', function(e: Event) {
+            const target = e.target as HTMLElement;
+            if (target.closest('.project-delete-btn') || target.closest('.project-reparent-btn')) return;
+            body.style.display = body.style.display === 'none' ? 'block' : 'none';
+            if (body.style.display === 'block') {
+                header.classList.add('bg-secondary');
+            }
+        });
+    }
+
+    // Name input
+    if (nameInput) {
+        nameInput.addEventListener('input', function() {
+            project.name = nameInput.value;
+            if (nameSpan) nameSpan.textContent = nameInput.value;
+            saveProject(project);
+            populateProjectSelectorMenu();
+        });
+    }
+
+    // Description input
+    if (descInput) {
+        descInput.addEventListener('input', function() {
+            project.description = descInput.value;
+            saveProject(project);
+        });
+    }
+
+    // Parent select
+    if (parentSelect) {
+        parentSelect.addEventListener('change', function() {
+            const newParent = parentSelect.value === 'root' ? null : parentSelect.value;
+            if (newParent === project.id) return;
+            reparentProject(project.id, newParent, STATE.projects).then(function() {
+                renderProjectsSettingsPanel();
+            });
+        });
+    }
+
+    // Value change handlers — empty/null = inherit, non-empty = override
+    if (instructionsInput) {
+        instructionsInput.addEventListener('input', function() {
+            project.settings.instructions = instructionsInput.value || null;
+            saveProject(project);
+        });
+    }
+    if (systemPromptInput && systemPromptBtn) {
+        systemPromptBtn.addEventListener('click', function() {
+            systemPromptBtn.style.display = 'none';
+            systemPromptInput.style.display = '';
+            systemPromptInput.focus();
+        });
+
+        systemPromptInput.addEventListener('blur', function() {
+            if (!systemPromptInput.value.trim()) {
+                systemPromptInput.style.display = 'none';
+                systemPromptBtn.style.display = '';
+                project.settings.systemPrompt = null;
+                saveProject(project);
+            }
+        });
+
+        systemPromptInput.addEventListener('input', function() {
+            project.settings.systemPrompt = systemPromptInput.value || null;
+            saveProject(project);
+        });
+    }
+    if (modelInput) {
+        modelInput.addEventListener('change', function() {
+            project.settings.model = modelInput.value || null;
+            saveProject(project);
+        });
+    }
+    if (resolutionInput) {
+        resolutionInput.addEventListener('change', function() {
+            project.settings.defaultResolution = resolutionInput.value as '1K' | '2K' | '4K' | null || null;
+            saveProject(project);
+        });
+    }
+    if (aspectRatioInput) {
+        aspectRatioInput.addEventListener('change', function() {
+            project.settings.defaultAspectRatio = aspectRatioInput.value || null;
+            saveProject(project);
+        });
+    }
+    if (ratingFilterInput) {
+        ratingFilterInput.addEventListener('change', function() {
+            const val = ratingFilterInput.value;
+            project.settings.defaultRatingFilter = val ? parseInt(val, 10) : null;
+            saveProject(project);
+        });
+    }
+
+    // Delete button
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', async function() {
+            if (!confirm('Delete project "' + project.name + '"? Conversations will be moved to root.')) return;
+            // Move conversations to root
+            const rootProject = STATE.projects.find(function(p: Project) { return p.id === 'root'; });
+            if (rootProject) {
+                for (const ts of project.conversationTimestamps) {
+                    if (!rootProject.conversationTimestamps.includes(ts)) {
+                        rootProject.conversationTimestamps.push(ts);
+                    }
+                }
+                await saveProject(rootProject);
+            }
+            // Reparent children to root
+            const children = STATE.projects.filter(function(p: Project) { return p.parentId === project.id; });
+            for (const child of children) {
+                child.parentId = null;
+                await saveProject(child);
+            }
+            await deleteProject(project.id);
+            STATE.projects = STATE.projects.filter(function(p: Project) { return p.id !== project.id; });
+            if (STATE.currentProjectId === project.id) {
+                STATE.currentProjectId = 'root';
+                selectProject('root');
+            }
+            renderProjectsSettingsPanel();
+            populateProjectSelectorMenu();
+        });
+    }
+
+    // Reparent button - expands the body if collapsed to show parent selector
+    if (reparentBtn) {
+        reparentBtn.addEventListener('click', function(e: Event) {
+            e.stopPropagation();
+            if (body) {
+                body.style.display = 'block';
+                if (parentSelect) {
+                    parentSelect.focus();
+                }
+            }
+        });
+    }
+
+    return editor;
+}
+
+/**
+ * Sets up a checkbox to toggle a project settings override field
+ * @param {HTMLInputElement | null} checkbox - The override checkbox
+ * @param {HTMLElement | null} input - The value input
+ * @param {Project} project - The project
+ * @param {string} field - Settings field name
+ */
+/**
+ * Updates inherited hints showing what values would be inherited
+ * @param {Project} project - The project
+ * @param {HTMLElement} editor - The editor element
+ */
+
+/**
+ * Renders the conversation list for a project
+ * @param {HTMLElement} container - Container element
+ * @param {Project} project - The project
+ */
+function renderProjectConversations(container: HTMLElement, project: Project): void {
+    container.innerHTML = '';
+
+    if (project.conversationTimestamps.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'text-muted small';
+        emptyMsg.textContent = 'No conversations in this project.';
+        container.appendChild(emptyMsg);
+        return;
+    }
+
+    // Load first few conversation titles for display
+    const displayCount = Math.min(project.conversationTimestamps.length, 20);
+
+    for (let i = 0; i < displayCount; i++) {
+        const ts = project.conversationTimestamps[i];
+        const convTemplate = document.getElementById('project-conversation-item-template') as HTMLTemplateElement | null;
+        if (!convTemplate) continue;
+
+        const clone = convTemplate.content.cloneNode(true) as DocumentFragment;
+        const item = clone.firstElementChild as HTMLElement;
+        if (!item) continue;
+
+        const titleEl = item.querySelector('.conversation-item-title') as HTMLElement;
+        const moveSelect = item.querySelector('.conversation-move-select') as HTMLSelectElement;
+
+        titleEl.textContent = 'Conversation ' + new Date(ts * 1000).toLocaleDateString();
+
+        // Highlight the currently active conversation
+        if (STATE.currentConversation && STATE.currentConversation.timestamp === ts) {
+            item.classList.add('border', 'border-info');
+            titleEl.classList.add('text-info', 'fw-bold');
+        }
+
+        // Populate move-to project options
+        if (moveSelect) {
+            const emptyOpt = document.createElement('option');
+            emptyOpt.value = '';
+            emptyOpt.textContent = 'Move to...';
+            moveSelect.appendChild(emptyOpt);
+
+            for (const p of STATE.projects) {
+                if (p.id === project.id) continue;
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = p.name;
+                moveSelect.appendChild(opt);
+            }
+
+            moveSelect.addEventListener('change', function() {
+                const targetId = moveSelect.value;
+                if (targetId) {
+                    moveConversationToProject(ts, targetId, STATE.projects).then(function() {
+                        renderProjectsSettingsPanel();
+                        populateProjectSelectorMenu();
+                    });
+                }
+            });
+        }
+
+        container.appendChild(item);
+    }
+
+    if (project.conversationTimestamps.length > 20) {
+        const moreMsg = document.createElement('div');
+        moreMsg.className = 'text-muted small mt-1';
+        moreMsg.textContent = '... and ' + (project.conversationTimestamps.length - 20) + ' more';
+        container.appendChild(moreMsg);
+    }
+}
+
+/**
+ * Sets up the "Add Project" button
+ */
+function setupAddProjectButton(): void {
+    const addBtn = document.getElementById('add-project-btn');
+    if (!addBtn) return;
+
+    // Remove existing listener
+    const newBtn = addBtn.cloneNode(true) as HTMLElement;
+    addBtn.parentNode!.replaceChild(newBtn, addBtn);
+
+    newBtn.addEventListener('click', async function() {
+        const newProject: Project = {
+            id: generateProjectId(),
+            name: 'New Project',
+            description: '',
+            parentId: null,
+            settings: createDefaultProjectSettings(),
+            conversationTimestamps: []
+        };
+
+        await saveProject(newProject);
+        STATE.projects.push(newProject);
+        renderProjectsSettingsPanel();
+        populateProjectSelectorMenu();
+    });
 }
 
 /**
@@ -925,7 +1707,7 @@ export async function handleSettingsOpen(): Promise<void> {
  */
 export async function updateConversationList(): Promise<void> {
     const timestamps = await listConversations();
-    await populateConversationList(timestamps);
+    await populateConversationList(timestamps, STATE.currentProjectId);
 }
 
 /**
@@ -956,6 +1738,9 @@ export async function loadConversationIntoView(timestamp: number): Promise<void>
         });
     }
 
+    // Remember this as the last viewed conversation
+    savePreference("lastConversation", String(timestamp));
+
     const hasMessages = conversation.entries && conversation.entries.length > 0;
     setTextareaInitialState(hasMessages);
     clearConversationArea();
@@ -978,14 +1763,18 @@ export async function loadConversationIntoView(timestamp: number): Promise<void>
 /**
  * Populates the conversation list in the left sidebar with saved conversations
  * @param {number[]} timestamps - Array of conversation timestamps
+ * @param {string} [projectFilter] - Optional project ID to filter by
  */
-export async function populateConversationList(timestamps: number[]): Promise<void> {
+export async function populateConversationList(timestamps: number[], projectFilter?: string): Promise<void> {
     const historyContainer = document.getElementById("conversation-history");
     if (!historyContainer) return;
 
     clearConversationHistory();
 
-    if (!timestamps || timestamps.length === 0) {
+    const projectId = projectFilter || STATE.currentProjectId;
+    const currentProject = STATE.projects.find(function(p: Project) { return p.id === projectId; });
+
+    if (!currentProject) {
         const emptyDiv = document.createElement("div");
         emptyDiv.className = "small text-muted";
         emptyDiv.textContent = "No saved conversations";
@@ -993,8 +1782,22 @@ export async function populateConversationList(timestamps: number[]): Promise<vo
         return;
     }
 
-    for (let i = 0; i < timestamps.length; i++) {
-        const timestamp = timestamps[i];
+    // Filter timestamps to only those belonging to the current project
+    const projectTimestamps = currentProject.conversationTimestamps;
+    const filteredTimestamps = timestamps.filter(function(ts: number) {
+        return projectTimestamps.indexOf(ts) !== -1;
+    });
+
+    if (!filteredTimestamps || filteredTimestamps.length === 0) {
+        const emptyDiv = document.createElement("div");
+        emptyDiv.className = "small text-muted";
+        emptyDiv.textContent = "No conversations in this project";
+        historyContainer.appendChild(emptyDiv);
+        return;
+    }
+
+    for (let i = 0; i < filteredTimestamps.length; i++) {
+        const timestamp = filteredTimestamps[i];
         const conversation = await loadConversation(timestamp);
         if (conversation && conversation.entries && conversation.entries.length > 0) {
             createConversationItem(timestamp, conversation);
@@ -3103,14 +3906,25 @@ export async function initConversationRatingFilter(): Promise<void> {
 
     if (!filterContainer || !filterSelect) return;
 
-    const defaultRating = await getPreference("defaultRatingFilter", "3");
-    const filterValue = defaultRating || "";
+    // Use project's effective default rating filter
+    const effective = getEffectiveProjectSettings({
+        model: null,
+        instructions: null,
+        systemPrompt: null,
+        defaultResolution: null,
+        defaultAspectRatio: null,
+        defaultRatingFilter: null
+    });
+
+    const filterValue = effective.defaultRatingFilter !== null ? String(effective.defaultRatingFilter) : "";
     
     STATE.conversationView.minRatingFilter = filterValue ? parseInt(filterValue, 10) : null;
     filterSelect.value = filterValue;
 
     if (filterSelect.value) {
         filterContainer.style.display = "flex";
+    } else {
+        filterContainer.style.display = "none";
     }
 
     filterSelect.addEventListener("change", async function() {

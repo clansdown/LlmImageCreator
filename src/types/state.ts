@@ -71,6 +71,24 @@ export interface ConversationViewState {
     imageElementCache: Map<string, HTMLElement>;
 }
 
+export interface ProjectSettings {
+    model: string | null;
+    instructions: string | null;
+    systemPrompt: string | null;
+    defaultResolution: '1K' | '2K' | '4K' | null;
+    defaultAspectRatio: string | null;
+    defaultRatingFilter: number | null;
+}
+
+export interface Project {
+    id: string;
+    name: string;
+    description: string;
+    parentId: string | null;
+    settings: ProjectSettings;
+    conversationTimestamps: number[];
+}
+
 export interface ConversationViewData {
     conversationTimestamp: number;
     entries: ConversationEntryViewData[];
@@ -105,7 +123,10 @@ export interface AppState {
     currentConversation: Conversation | null;
     conversationHistory: Message[];
     isGenerating: boolean;
+    apiKey: string;
     deferredPrompt: Event | null;
     externalSync: ExternalSyncState;
     conversationView: ConversationViewState;
+    projects: Project[];
+    currentProjectId: string;
 }

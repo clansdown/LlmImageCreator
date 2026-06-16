@@ -21,13 +21,14 @@
  *             └── ... (sequential numbering for all images in conversation)
  */
 
-import type { Conversation, ConversationSummary } from './types/state';
+import type { Conversation, ConversationSummary, Project } from './types/state';
 import { saveImageToExternal, saveConversationToExternal, saveSummaryToExternal, saveReferenceImageToExternal } from './externalSync';
 
 const STORAGE_PREFERENCES_DIR: string = "preferences";
 const STORAGE_CONVERSATIONS_DIR: string = "conversations";
 const STORAGE_IMAGES_DIR: string = "images";
 const STORAGE_REFERENCE_DIR: string = "reference";
+const STORAGE_PROJECTS_DIR: string = "projects";
 
 /**
  * Gets the OPFS root directory handle
@@ -718,4 +719,155 @@ export async function clearDirectoryHandle(): Promise<void> {
     } catch (e) {
         console.error("Error clearing directory handle:", e);
     }
+}
+
+/**
+ * Saves a project to OPFS
+ * @param {Project} project - Project data to save
+ * @returns {Promise<void>}
+ */
+export async function saveProject(project: Project): Promise<void> {
+    try {
+        const root = await getOPFSHandle();
+        const projectsDir = await ensureDirectory(root, STORAGE_PROJECTS_DIR);
+        const fileHandle = await projectsDir.getFileHandle(project.id + '.json', { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(JSON.stringify(project, null, 2));
+        await writable.close();
+    } catch (e) {
+        console.error("Error saving project:", e);
+    }
+}
+
+/**
+ * Loads a project by ID from OPFS
+ * @param {string} id - Project ID
+ * @returns {Promise<Project | null>} Project data or null
+ */
+export async function loadProject(id: string): Promise<Project | null> {
+    try {
+        const root = await getOPFSHandle();
+        const projectsDir = await ensureDirectory(root, STORAGE_PROJECTS_DIR);
+        const fileHandle = await projectsDir.getFileHandle(id + '.json');
+        const file = await fileHandle.getFile();
+        const content = await file.text();
+        return JSON.parse(content) as Project;
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * Lists all project IDs
+ * @returns {Promise<string[]>} Array of project IDs
+ */
+export async function listProjectIds(): Promise<string[]> {
+    try {
+        const root = await getOPFSHandle();
+        const projectsDir = await ensureDirectory(root, STORAGE_PROJECTS_DIR);
+        const ids: string[] = [];
+        for await (const entry of projectsDir.values()) {
+            if (entry.kind === 'file' && entry.name.endsWith('.json')) {
+                ids.push(entry.name.replace('.json', ''));
+            }
+        }
+        return ids;
+    } catch (e) {
+        return [];
+    }
+}
+
+/**
+ * Deletes a project by ID
+ * @param {string} id - Project ID to delete
+ * @returns {Promise<void>}
+ */
+export async function deleteProject(id: string): Promise<void> {
+    try {
+        const root = await getOPFSHandle();
+        const projectsDir = await ensureDirectory(root, STORAGE_PROJECTS_DIR);
+        await projectsDir.removeEntry(id + '.json');
+    } catch (e) {
+        console.error("Error deleting project:", e);
+    }
+}
+
+/**
+ * Loads all projects from OPFS
+ * @returns {Promise<Project[]>} Array of all projects
+ */
+export async function loadAllProjects(): Promise<Project[]> {
+    const ids = await listProjectIds();
+    const projects: Project[] = [];
+    for (const id of ids) {
+        const project = await loadProject(id);
+        if (project) {
+            projects.push(project);
+        }
+    }
+    return projects;
+}
+
+/**
+ * Creates the root project and assigns all existing conversations to it
+ * @returns {Promise<Project>} The created root project
+ */
+export async function createRootProject(): Promise<Project> {
+    const conversationTimestamps = await listConversations();
+    const rootProject: Project = {
+        id: 'root',
+        name: 'Root',
+        description: 'Default project containing all conversations',
+        parentId: null,
+        settings: {
+            model: null,
+            instructions: null,
+            systemPrompt: null,
+            defaultResolution: null,
+            defaultAspectRatio: null,
+            defaultRatingFilter: null
+        },
+        conversationTimestamps: conversationTimestamps
+    };
+    await saveProject(rootProject);
+    return rootProject;
+}
+
+/**
+ * Moves a conversation from one project to another
+ * @param {number} conversationTimestamp - Conversation timestamp to move
+ * @param {string} toProjectId - Destination project ID
+ * @param {Project[]} allProjects - All projects array (will be mutated)
+ * @returns {Promise<void>}
+ */
+export async function moveConversationToProject(conversationTimestamp: number, toProjectId: string, allProjects: Project[]): Promise<void> {
+    for (const project of allProjects) {
+        const idx = project.conversationTimestamps.indexOf(conversationTimestamp);
+        if (idx !== -1) {
+            project.conversationTimestamps.splice(idx, 1);
+            await saveProject(project);
+        }
+    }
+    const target = allProjects.find(p => p.id === toProjectId);
+    if (target) {
+        if (!target.conversationTimestamps.includes(conversationTimestamp)) {
+            target.conversationTimestamps.push(conversationTimestamp);
+        }
+        await saveProject(target);
+    }
+}
+
+/**
+ * Reparents a project to a new parent
+ * @param {string} projectId - Project ID to reparent
+ * @param {string | null} newParentId - New parent ID (null for root)
+ * @param {Project[]} allProjects - All projects array (will be mutated)
+ * @returns {Promise<void>}
+ */
+export async function reparentProject(projectId: string, newParentId: string | null, allProjects: Project[]): Promise<void> {
+    const project = allProjects.find(p => p.id === projectId);
+    if (!project) return;
+    if (project.id === 'root') return;
+    project.parentId = newParentId;
+    await saveProject(project);
 }

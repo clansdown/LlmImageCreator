@@ -141,11 +141,6 @@
                         <li><a class="dropdown-item" href="#">21:9</a></li>
                     </ul>
                 </div>
-
-                <form class="me-2">
-                    
-                    <input id="api-key-input" type="password" autocomplete="current-password" class="form-control form-control-sm" title="Enter your OpenRouter API key" placeholder="Enter OpenRouter API key" style="width: 250px;">
-                </form>
             </div>
 
             <div class="d-flex align-items-center">
@@ -353,9 +348,9 @@
         </div>
     </template>
 
-    <!-- settings-dialog-template: Template for the settings configuration dialog -->
+    <!-- settings-dialog-template: Template for the settings configuration dialog with tabs -->
     <template id="settings-dialog-template">
-        <div class="modal modal-lg fade" id="settings-modal" tabindex="-1" aria-hidden="true">
+        <div class="modal modal-xl fade" id="settings-modal" tabindex="-1" aria-hidden="true">
             <div class="modal-dialog">
                 <div class="modal-content">
                     <div class="modal-header">
@@ -363,36 +358,200 @@
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
-                        <div class="mb-3">
-                            <label for="system-prompt-textarea" class="form-label">System Prompt</label>
-                            <textarea id="system-prompt-textarea" class="form-control" rows="4" placeholder="Enter your custom system prompt..."></textarea>
-                            <div class="form-text">Universal style guidelines for image generation. This prompt will be used for all new images.</div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="upscaling-model-select" class="form-label">Upscaling Model</label>
-                            <select id="upscaling-model-select" class="form-select" aria-label="Select upscaling model">
-                                <option value="" disabled selected>Select a model for upscaling images to 4K</option>
-                            </select>
-                            <div class="form-text">Select one to enable the "Regenerate in 4K" button.</div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="default-rating-filter-select" class="form-label">Default Rating Filter</label>
-                            <select id="default-rating-filter-select" class="form-select bg-dark text-white border-secondary">
-                                <option value="">Show all images</option>
-                                <option value="5">★★★★★</option>
-                                <option value="4">★★★★☆+</option>
-                                <option value="3">★★★☆☆+</option>
-                                <option value="2">★★☆☆☆+</option>
-                                <option value="1">★☆☆☆☆+</option>
-                            </select>
-                            <div class="form-text">Default minimum rating filter for the conversation view. Unrated images are always shown.</div>
+                        <ul class="nav nav-tabs border-secondary mb-3" id="settings-tabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active text-white" id="settings-general-tab" type="button" role="tab" data-action="tab-general">General</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link text-white" id="settings-projects-tab" type="button" role="tab" data-action="tab-projects">Projects</button>
+                            </li>
+                        </ul>
+                        <div class="tab-content" id="settings-tab-content">
+                            <!-- General tab: Global defaults -->
+                            <div class="tab-pane fade show active" id="settings-general-pane" role="tabpanel">
+                                <div class="mb-3">
+                                    <label for="settings-api-key-input" class="form-label">OpenRouter API Key</label>
+                                    <input id="settings-api-key-input" type="password" autocomplete="current-password" class="form-control" placeholder="Enter your OpenRouter API key">
+                                    <div class="form-text">Your API key is stored locally in your browser and never sent anywhere except OpenRouter.</div>
+                                </div>
+                                <hr>
+                                <div class="mb-3">
+                                    <label for="upscaling-model-select" class="form-label">Upscaling Model</label>
+                                    <select id="upscaling-model-select" class="form-select" aria-label="Select upscaling model">
+                                        <option value="" disabled selected>Select a model for upscaling images to 4K</option>
+                                    </select>
+                                    <div class="form-text">Select one to enable the "Regenerate in 4K" button.</div>
+                                </div>
+                                <hr>
+                                <h6 class="mb-3">Default Settings for Projects</h6>
+                                <div class="mb-3">
+                                    <label for="default-system-prompt-textarea" class="form-label">System Prompt</label>
+                                    <textarea id="default-system-prompt-textarea" class="form-control" rows="4" placeholder="Enter system prompt..."></textarea>
+                                    <div class="form-text">Default system prompt used for all image generations.</div>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="default-resolution-select" class="form-label">Default Resolution</label>
+                                    <select id="default-resolution-select" class="form-select bg-dark text-white border-secondary">
+                                        <option value="1K">1K</option>
+                                        <option value="2K">2K</option>
+                                        <option value="4K">4K</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="default-aspect-ratio-select" class="form-label">Default Aspect Ratio</label>
+                                    <select id="default-aspect-ratio-select" class="form-select bg-dark text-white border-secondary">
+                                        <option value="1:1">1:1</option>
+                                        <option value="16:9">16:9</option>
+                                        <option value="3:2">3:2</option>
+                                        <option value="21:9">21:9</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="default-rating-filter-select" class="form-label">Default Rating Filter</label>
+                                    <select id="default-rating-filter-select" class="form-select bg-dark text-white border-secondary">
+                                        <option value="">Show all images</option>
+                                        <option value="5">★★★★★</option>
+                                        <option value="4">★★★★☆+</option>
+                                        <option value="3">★★★☆☆+</option>
+                                        <option value="2">★★☆☆☆+</option>
+                                        <option value="1">★☆☆☆☆+</option>
+                                    </select>
+                                    <div class="form-text">Default minimum rating filter for projects. Unrated images are always shown.</div>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="default-model-select" class="form-label">Default Model</label>
+                                    <select id="default-model-select" class="form-select bg-dark text-white border-secondary">
+                                        <option value="">None (no default)</option>
+                                    </select>
+                                    <div class="form-text">Default model to auto-select when switching to a project.</div>
+                                </div>
+                            </div>
+                            <!-- Projects tab: Sub-project management -->
+                            <div class="tab-pane fade" id="settings-projects-pane" role="tabpanel">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="mb-0">Sub-Projects</h6>
+                                    <button id="add-project-btn" type="button" class="btn btn-sm btn-outline-light">+ New Project</button>
+                                </div>
+                                <div id="projects-list" class="mb-3"></div>
+                            </div>
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button id="settings-save-btn" type="button" class="btn btn-primary">Save</button>
                     </div>
                 </div>
             </div>
+        </div>
+    </template>
+
+    <!-- project-editor-template: Template for editing a single project's settings -->
+    <template id="project-editor-template">
+        <div class="project-editor border border-secondary rounded mb-3">
+            <div class="project-editor-header bg-secondary p-2 d-flex justify-content-between align-items-center cursor-pointer" role="button">
+                <span class="project-editor-name fw-bold"></span>
+                <div class="d-flex gap-1">
+                    <button type="button" class="btn btn-sm btn-outline-light project-reparent-btn" title="Reparent project">↕</button>
+                    <button type="button" class="btn btn-sm btn-outline-danger project-delete-btn" title="Delete project">✕</button>
+                </div>
+            </div>
+            <div class="project-editor-body p-3" style="display: none;">
+                <div class="mb-2">
+                    <label class="form-label small">Name</label>
+                    <input type="text" class="form-control form-control-sm project-name-input">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">Description</label>
+                    <textarea class="form-control form-control-sm project-description-input" rows="1"></textarea>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">Parent Project</label>
+                    <select class="form-select form-select-sm project-parent-select"></select>
+                </div>
+                <hr class="my-2">
+                <div class="mb-2 row">
+                    <label class="col-form-label col-lg-2 small">Instructions</label>
+                    <div class="col-lg-10">
+                        <textarea class="form-control form-control-sm project-instructions-input" rows="4" placeholder="Instructions appended to every generation..."></textarea>
+                    </div>
+                </div>
+                <div class="mb-2 row">
+                    <label class="col-form-label col-lg-2 small">System Prompt</label>
+                    <div class="col-lg-10">
+                        <button type="button" class="btn btn-sm btn-outline-secondary project-set-system-prompt-btn">Set system prompt</button>
+                        <textarea class="form-control form-control-sm project-system-prompt-input" rows="2" placeholder="System prompt..." style="display: none;"></textarea>
+                    </div>
+                </div>
+                <div class="mb-2 row">
+                    <label class="col-form-label col-lg-2 small">Model</label>
+                    <div class="col-lg-4">
+                        <select class="form-select form-select-sm project-model-input">
+                            <option value="">Inherited</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-2 row">
+                    <label class="col-form-label col-lg-2 small">Resolution</label>
+                    <div class="col-lg-4">
+                        <select class="form-select form-select-sm project-resolution-input">
+                            <option value="">Inherited</option>
+                            <option value="1K">1K</option>
+                            <option value="2K">2K</option>
+                            <option value="4K">4K</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-2 row">
+                    <label class="col-form-label col-lg-2 small">Aspect Ratio</label>
+                    <div class="col-lg-4">
+                        <select class="form-select form-select-sm project-aspect-ratio-input">
+                            <option value="">Inherited</option>
+                            <option value="1:1">1:1</option>
+                            <option value="16:9">16:9</option>
+                            <option value="3:2">3:2</option>
+                            <option value="21:9">21:9</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-2 row">
+                    <label class="col-form-label col-lg-2 small">Rating Filter</label>
+                    <div class="col-lg-4">
+                        <select class="form-select form-select-sm project-rating-filter-input">
+                            <option value="">Inherited</option>
+                            <option value="5">★★★★★</option>
+                            <option value="4">★★★★☆+</option>
+                            <option value="3">★★★☆☆+</option>
+                            <option value="2">★★☆☆☆+</option>
+                            <option value="1">★☆☆☆☆+</option>
+                        </select>
+                    </div>
+                </div>
+                <hr class="my-2">
+                <div class="mb-2">
+                    <label class="form-label small">Conversations in this project</label>
+                    <div class="project-conversations-list small"></div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- project-conversation-item-template: A conversation entry in a project's conversation list -->
+    <template id="project-conversation-item-template">
+        <div class="d-flex justify-content-between align-items-center mb-1 p-1 bg-dark rounded">
+            <span class="conversation-item-title small text-truncate me-2" style="max-width: 200px;"></span>
+            <select class="form-select form-select-sm conversation-move-select" style="width: auto; min-width: 120px;">
+                <option value="">Move to...</option>
+            </select>
+        </div>
+    </template>
+
+    <!-- project-selector-template: Dropdown in toolbar for selecting current project -->
+    <template id="project-selector-template">
+        <div class="dropdown me-2">
+            <button id="project-selector-btn" class="btn btn-outline-light btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" title="Select project" aria-expanded="false">
+                Root
+            </button>
+            <ul id="project-selector-menu" class="dropdown-menu dropdown-menu-dark" aria-labelledby="project-selector-btn"></ul>
         </div>
     </template>
 
@@ -779,6 +938,26 @@
         }
         .image-item-container.filtered-out {
             display: none;
+        }
+        .project-editor-header:hover {
+            background-color: #5a6268 !important;
+        }
+        .project-editor-body label.form-label {
+            margin-bottom: 0.25rem;
+        }
+        .project-editor-body hr {
+            border-color: #495057;
+        }
+        .nav-tabs .nav-link {
+            color: #adb5bd;
+        }
+        .nav-tabs .nav-link:hover {
+            color: #fff;
+        }
+        .nav-tabs .nav-link.active {
+            color: #fff !important;
+            background-color: #343a40 !important;
+            border-color: #495057 #495057 #343a40 !important;
         }
     </style>
 

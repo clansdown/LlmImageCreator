@@ -6,11 +6,11 @@
 import { STATE } from './state';
 import { UPSCALE_PROMPT } from './prompt';
 import { fetchModels, fetchBalance, generateImage, getGenerationInfo } from './openrouter';
-import { savePreference, getPreference, listConversations, createConversation, loadConversation, saveConversation, deletePreference, getImage, saveImage, saveSummary, loadSummary } from './storage';
+import { savePreference, getPreference, listConversations, createConversation, loadConversation, saveConversation, deletePreference, getImage, saveImage, saveSummary, loadSummary, saveProject } from './storage';
 import * as ui from './ui';
 import { generateRandomSeed, generateConversationTitle, updateConversationSummary, getApiKey } from './util';
 import { toggleSync, isFileSystemAccessSupported, restoreDirectoryHandle, reauthorizeDirectory } from './externalSync';
-import type { Conversation, ConversationSummary, ConversationEntry, Message, ReferenceImage } from './types/state';
+import type { Conversation, ConversationSummary, ConversationEntry, Message, ReferenceImage, Project } from './types/state';
 import type { VisionModel, ChatCompletionResponse, ImageConfig, BalanceInfo, GenerationInfo, Message as ApiMessage } from './types/api';
 
 export { getUpscalingModel };
@@ -121,10 +121,55 @@ export function init(): void {
     setupEventListeners();
     ui.initSettingsDialog();
     ui.initConversationRatingFilter();
-    loadPreferencesAndInitialize();
+    const prefsPromise = loadPreferencesAndInitialize();
+    ui.initProjectSystem().then(async function() {
+        ui.renderProjectSelector();
+        listConversations().then(function(timestamps: number[]) {
+            ui.populateConversationList(timestamps, STATE.currentProjectId);
+        });
 
-    listConversations().then(function(timestamps: number[]) {
-        ui.populateConversationList(timestamps);
+        // Set selector button text
+        const currentProject = STATE.projects.find(function(p: Project) { return p.id === STATE.currentProjectId; });
+        if (currentProject) {
+            const btn = document.getElementById('project-selector-btn');
+            if (btn) {
+                btn.textContent = '';
+                btn.textContent = currentProject.name + ' ';
+            }
+        }
+
+        // Wait for preferences and models to load before applying root overrides
+        await prefsPromise;
+
+        // Apply root project's non-null settings on top of preferences
+        const rootProject = STATE.projects.find(function(p: Project) { return p.id === 'root'; });
+        if (rootProject) {
+            if (rootProject.settings.model && STATE.visionModels.length > 0) {
+                ui.selectModelById(rootProject.settings.model, STATE.visionModels);
+            }
+            if (rootProject.settings.defaultResolution) {
+                ui.setResolution(rootProject.settings.defaultResolution);
+            }
+            if (rootProject.settings.defaultAspectRatio) {
+                ui.setAspectRatio(rootProject.settings.defaultAspectRatio);
+            }
+            if (rootProject.settings.defaultRatingFilter !== null) {
+                const filterSelect = document.getElementById('conversation-rating-filter') as HTMLSelectElement | null;
+                if (filterSelect) {
+                    filterSelect.value = String(rootProject.settings.defaultRatingFilter);
+                    STATE.conversationView.minRatingFilter = rootProject.settings.defaultRatingFilter;
+                }
+            }
+        }
+
+        // Restore last viewed conversation
+        const lastConv = await getPreference("lastConversation");
+        if (lastConv) {
+            const ts = parseInt(lastConv, 10);
+            if (!isNaN(ts)) {
+                await ui.loadConversationIntoView(ts);
+            }
+        }
     });
 
     ui.renderReferenceImagesToolbar(STATE.currentConversation);
@@ -141,24 +186,6 @@ export function init(): void {
  * Sets up all event listeners for the application
  */
 export function setupEventListeners(): void {
-    const apiKeyForm = document.querySelector("#api-key-input")?.closest("form");
-    if (apiKeyForm) {
-        apiKeyForm.addEventListener("submit", function(e: Event) {
-            e.preventDefault();
-            handleApiKeyEntry();
-        });
-    }
-
-    const apiKeyInput = document.getElementById("api-key-input") as HTMLInputElement | null;
-    if (apiKeyInput) {
-        apiKeyInput.addEventListener("blur", handleApiKeyEntry);
-        apiKeyInput.addEventListener("keyup", function(e: KeyboardEvent) {
-            if (e.key === "Enter") {
-                handleApiKeyEntry();
-            }
-        });
-    }
-
     const toggleBtn = document.getElementById("toggle-sidebar-btn");
     if (toggleBtn) {
         toggleBtn.addEventListener("click", function(e: Event) {
@@ -282,11 +309,7 @@ export async function loadPreferencesAndInitialize(): Promise<void> {
     const apiKey = await getPreference("apiKey");
 
     if (apiKey && apiKey.length > 0) {
-        const apiKeyInput = document.getElementById("api-key-input") as HTMLInputElement | null;
-        if (apiKeyInput) {
-            apiKeyInput.value = apiKey;
-        }
-
+        STATE.apiKey = apiKey;
         handleApiKeyEntry();
     } else {
         initializeDropdowns();
@@ -340,7 +363,7 @@ export function handleApiKeyEntry(): void {
             ui.updateBalanceDisplay(null, "Balance unavailable - check API key permissions");
         });
     } else {
-        savePreference("apiKey", "");
+        deletePreference("apiKey");
         ui.clearModelDropdown();
         ui.updateBalanceDisplay(null);
     }
@@ -483,10 +506,15 @@ export async function handleImageGenerationWithSpinner(
     imageInput?: {imageData: string},
     referenceImages?: ReferenceImage[],
     targetImageIndex?: number,
-    scrollToBottom: boolean = false
+    scrollToBottom: boolean = false,
+    instructions?: string
 ): Promise<void> {
     // Look up model name once at the start - needed for both new entry and regeneration paths
     const modelName = getModelName(model);
+
+    // Derive display text (stored in entry) and api prompt (sent to API)
+    const displayText = prompt;
+    const apiPrompt = instructions ? prompt + '\n\n' + instructions : prompt;
 
     const resolution = imageConfig.imageSize;
     const isNewEntry = targetEntry === null;
@@ -496,7 +524,7 @@ export async function handleImageGenerationWithSpinner(
         const placeholderEntry: ConversationEntry = {
             message: {
                 systemPrompt: systemPrompt || "",
-                text: prompt,
+                text: displayText,
                 seed: seed as number,
                 modelId: model,
                 modelName: modelName,
@@ -538,7 +566,7 @@ export async function handleImageGenerationWithSpinner(
     }
 
     try {
-        const response = await generateImage(apiKey, prompt, model, systemPrompt, conversationHistory as ApiMessage[], imageConfig, seed, imageInput, referenceImagesDataUrls);
+        const response = await generateImage(apiKey, apiPrompt, model, systemPrompt, conversationHistory as ApiMessage[], imageConfig, seed, imageInput, referenceImagesDataUrls);
 
         if (!response.choices || response.choices.length === 0) {
             throw new Error("No response from API");
@@ -560,7 +588,7 @@ export async function handleImageGenerationWithSpinner(
         if (isNewEntry) {
             const modelId = response.model;
             const modelName = getModelName(modelId);
-            const entry = createConversationEntry(prompt, seed as number, response, imageFilenames, imageConfig, modelId, modelName, systemPrompt || "", referenceImages);
+            const entry = createConversationEntry(displayText, seed as number, response, imageFilenames, imageConfig, modelId, modelName, systemPrompt || "", referenceImages);
             conversation.entries[entryIndex] = entry;
         } else {
             const placeholderIdx = targetImageIndex !== undefined 
@@ -678,6 +706,18 @@ export async function handleGenerate(): Promise<void> {
 
     const referenceImages = STATE.currentConversation?.referenceImages ?? [];
 
+    // Compute project instructions for API enrichment (not stored in entry)
+    const currentProject = STATE.projects.find(function(p: Project) { return p.id === STATE.currentProjectId; });
+    const effectiveSettings = ui.getEffectiveProjectSettings({
+        model: null,
+        instructions: null,
+        systemPrompt: null,
+        defaultResolution: null,
+        defaultAspectRatio: null,
+        defaultRatingFilter: null
+    });
+    const projectInstructions = effectiveSettings.instructions || undefined;
+
     STATE.conversationHistory.push({
         role: "user",
         content: prompt
@@ -690,6 +730,11 @@ export async function handleGenerate(): Promise<void> {
     const systemPrompt = await ui.getSystemPrompt();
 
     createConversation(STATE.currentConversation.timestamp).then(function() {
+        // Add conversation to current project if not already there
+        if (currentProject && !currentProject.conversationTimestamps.includes(STATE.currentConversation!.timestamp)) {
+            currentProject.conversationTimestamps.push(STATE.currentConversation!.timestamp);
+            saveProject(currentProject);
+        }
         return handleImageGenerationWithSpinner(
             apiKey,
             STATE.currentConversation!,
@@ -702,7 +747,9 @@ export async function handleGenerate(): Promise<void> {
             seed,
             undefined,
             referenceImages,
-            true
+            undefined,
+            true,
+            projectInstructions
         );
     }).then(function() {
         ui.clearUserInput();
@@ -773,6 +820,17 @@ export async function handleRegenerateWithNewSeed(
     const newSeed = generateRandomSeed();
     const prompt = entry.message.text;
     
+    // Compute project instructions for API enrichment
+    const effectiveSettings = ui.getEffectiveProjectSettings({
+        model: null,
+        instructions: null,
+        systemPrompt: null,
+        defaultResolution: null,
+        defaultAspectRatio: null,
+        defaultRatingFilter: null
+    });
+    const projectInstructions = effectiveSettings.instructions || undefined;
+
     // Combine existing reference images with additional reference if provided
     const existingRefImages = entry.message.referenceImages || [];
     const combinedRefImages = additionalReferenceImage
@@ -795,7 +853,8 @@ export async function handleRegenerateWithNewSeed(
         undefined,
         combinedRefImages,
         targetImageIndex,
-        scrollToBottom
+        scrollToBottom,
+        projectInstructions
     );
 }
 

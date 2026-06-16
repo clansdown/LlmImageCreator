@@ -3,18 +3,17 @@
  * Shared functions used by ui.ts and agent.ts
  */
 
+import { STATE } from './state';
 import { generateTitle } from './openrouter';
 import { TITLE_GENERATION_PROMPT } from './prompt';
 import { loadConversation, saveConversation, saveSummary, loadSummary } from './storage';
 
 /**
- * Gets the API key from the input field
+ * Gets the API key from state
  * @returns {string} API key value
  */
 export function getApiKey(): string {
-    const input = document.getElementById("api-key-input");
-    if (!input) return "";
-    return (input as HTMLInputElement).value.trim();
+    return STATE.apiKey;
 }
 
 /**
@@ -65,6 +64,95 @@ export async function generateConversationTitle(prompt: string): Promise<string>
         console.error("Error generating title:", e);
         return "";
     }
+}
+
+/**
+ * Generates a unique project ID
+ * @returns {string} Unique project ID
+ */
+export function generateProjectId(): string {
+    return 'proj_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 9);
+}
+
+/**
+ * Default project settings with all values null (inherit from parent)
+ * @returns {import('./types/state').ProjectSettings}
+ */
+export function createDefaultProjectSettings(): import('./types/state').ProjectSettings {
+    return {
+        model: null,
+        instructions: null,
+        systemPrompt: null,
+        defaultResolution: null,
+        defaultAspectRatio: null,
+        defaultRatingFilter: null
+    };
+}
+
+/**
+ * Resolves inherited project settings by walking the parent chain.
+ * For instructions: accumulates ALL ancestor instructions (concatenated, root first).
+ * For all other settings: first non-null value wins (nearest override).
+ * @param {import('./types/state').Project} project - Project to resolve settings for
+ * @param {import('./types/state').Project[]} allProjects - All projects for parent lookup
+ * @param {import('./types/state').ProjectSettings} globalDefaults - Fallback defaults when chain yields null
+ * @returns {import('./types/state').ProjectSettings} Resolved settings (all non-null values)
+ */
+export function resolveInheritedSettings(
+    project: import('./types/state').Project,
+    allProjects: import('./types/state').Project[],
+    globalDefaults: import('./types/state').ProjectSettings
+): import('./types/state').ProjectSettings {
+    /** @type {import('./types/state').ProjectSettings} */
+    const resolved: import('./types/state').ProjectSettings = {
+        model: null,
+        instructions: null,
+        systemPrompt: null,
+        defaultResolution: null,
+        defaultAspectRatio: null,
+        defaultRatingFilter: null
+    };
+
+    /** @type {string[]} */
+    const instructionBlocks: string[] = [];
+
+    /** @type {import('./types/state').Project | null} */
+    let current: import('./types/state').Project | null = project;
+    const visited = new Set<string>();
+
+    while (current) {
+        if (visited.has(current.id)) break;
+        visited.add(current.id);
+
+        const s = current.settings;
+        if (resolved.model === null && s.model !== null) resolved.model = s.model;
+        if (s.instructions !== null) instructionBlocks.push(s.instructions);
+        if (resolved.systemPrompt === null && s.systemPrompt !== null) resolved.systemPrompt = s.systemPrompt;
+        if (resolved.defaultResolution === null && s.defaultResolution !== null) resolved.defaultResolution = s.defaultResolution;
+        if (resolved.defaultAspectRatio === null && s.defaultAspectRatio !== null) resolved.defaultAspectRatio = s.defaultAspectRatio;
+        if (resolved.defaultRatingFilter === null && s.defaultRatingFilter !== null) resolved.defaultRatingFilter = s.defaultRatingFilter;
+
+        if (current.parentId) {
+            current = allProjects.find(p => p.id === current!.parentId) ?? null;
+        } else {
+            break;
+        }
+    }
+
+    // Instructions accumulate: root first, then child, then grandchild...
+    if (instructionBlocks.length > 0) {
+        resolved.instructions = instructionBlocks.reverse().join('\n\n');
+    }
+
+    // Fill remaining nulls with global defaults
+    if (resolved.model === null) resolved.model = globalDefaults.model;
+    if (resolved.instructions === null) resolved.instructions = globalDefaults.instructions;
+    if (resolved.systemPrompt === null) resolved.systemPrompt = globalDefaults.systemPrompt;
+    if (resolved.defaultResolution === null) resolved.defaultResolution = globalDefaults.defaultResolution;
+    if (resolved.defaultAspectRatio === null) resolved.defaultAspectRatio = globalDefaults.defaultAspectRatio;
+    if (resolved.defaultRatingFilter === null) resolved.defaultRatingFilter = globalDefaults.defaultRatingFilter;
+
+    return resolved;
 }
 
 /**
